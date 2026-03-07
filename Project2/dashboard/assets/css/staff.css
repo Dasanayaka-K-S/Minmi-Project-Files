@@ -1,0 +1,479 @@
+/* ============================================================
+   STAFF MANAGEMENT — staff.css
+   Place in: dashboard/assets/css/staff.css
+   Link in header.php (after style.css):
+     <link rel="stylesheet" href="...assets/css/staff.css">
+   Shares CSS variables from style.css — no overrides needed.
+   ============================================================ */
+
+/* ── New variables (extend root without touching style.css) ── */
+:root {
+    --purple:     #a855f7;
+    --purple-dim: #1e0d3a;
+    --pink:       #f472b6;
+    --pink-dim:   #3a0d26;
+}
+
+
+/* ════════════════════════════════════════
+   PAGE HEADER
+   ════════════════════════════════════════ */
+.page-header {
+    margin-bottom:   24px;
+    display:         flex;
+    align-items:     flex-start;
+    justify-content: space-between;
+    flex-wrap:       wrap;
+    gap:             12px;
+}
+.page-header-text h1 {
+    font-family:     'DM Serif Display', serif;
+    font-size:       1.9rem;
+    font-weight:     400;
+    letter-spacing:  -.03em;
+}
+.page-header-text p {
+    color:       var(--text-2);
+    font-size:   .85rem;
+    margin-top:  4px;
+}
+.page-header-actions {
+    display:     flex;
+    gap:         10px;
+    flex-wrap:   wrap;
+    align-items: center;
+}
+
+
+/* ════════════════════════════════════════
+   STAT CARDS  (extends base .stat-card)
+   ════════════════════════════════════════ */
+.stat-card {
+    transition: border-color var(--transition), transform var(--transition);
+}
+.stat-card:hover {
+    border-color: var(--border-l);
+    transform:    translateY(-2px);
+}
+/* Purple accent stripe */
+.stat-card.purple::before { background: var(--purple); }
+
+
+/* ════════════════════════════════════════
+   EXTRA BADGE COLOURS
+   ════════════════════════════════════════ */
+.badge-purple { background: var(--purple-dim); color: var(--purple); }
+.badge-pink   { background: var(--pink-dim);   color: var(--pink);   }
+
+
+/* ════════════════════════════════════════
+   VIEW TOGGLE  (Table / Cards)
+   ════════════════════════════════════════ */
+.view-toggle {
+    display:       flex;
+    background:    var(--bg-3);
+    border-radius: var(--radius);
+    border:        1px solid var(--border);
+    overflow:      hidden;
+}
+.view-btn {
+    background:  none;
+    border:      none;
+    cursor:      pointer;
+    padding:     7px 14px;
+    color:       var(--text-3);
+    font-size:   .82rem;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    transition:  all var(--transition);
+}
+.view-btn.active {
+    background: var(--bg-card);
+    color:      var(--text);
+}
+
+
+/* ════════════════════════════════════════
+   STAFF TABLE — avatar + name cell
+   ════════════════════════════════════════ */
+.staff-cell {
+    display:     flex;
+    align-items: center;
+    gap:         11px;
+}
+.staff-avatar {
+    width:          36px;
+    height:         36px;
+    border-radius:  10px;
+    display:        inline-flex;
+    align-items:    center;
+    justify-content:center;
+    font-weight:    700;
+    font-size:      .75rem;
+    color:          #fff;
+    flex-shrink:    0;
+    letter-spacing: .03em;
+}
+.staff-name {
+    font-weight: 600;
+    font-size:   .88rem;
+}
+.staff-id {
+    font-size: .72rem;
+    color:     var(--text-3);
+}
+
+
+/* ════════════════════════════════════════
+   STAR RATING
+   ════════════════════════════════════════ */
+.star-rating {
+    color:          var(--yellow);
+    font-size:      .78rem;
+    letter-spacing: 1px;
+}
+.star-val {
+    font-size:   .78rem;
+    color:       var(--text-2);
+    margin-left: 3px;
+}
+
+
+/* ════════════════════════════════════════
+   CHART BOXES
+   ════════════════════════════════════════ */
+.chart-box {
+    position: relative;
+    height:   240px;
+    width:    100%;
+}
+
+
+/* ════════════════════════════════════════
+   PERFORMANCE PROGRESS BARS
+   ════════════════════════════════════════ */
+.progress-row {
+    display:     flex;
+    align-items: center;
+    gap:         10px;
+    margin-bottom: 12px;
+}
+.progress-label {
+    font-size:  .8rem;
+    min-width:  110px;
+    color:      var(--text-2);
+}
+.progress-bar-wrap {
+    flex:          1;
+    height:        6px;
+    background:    var(--bg-3);
+    border-radius: 3px;
+    overflow:      hidden;
+}
+.progress-bar {
+    height:        100%;
+    border-radius: 3px;
+    transition:    width .6s ease;
+}
+.progress-val {
+    font-size:  .75rem;
+    min-width:  36px;
+    text-align: right;
+    color:      var(--text-2);
+}
+
+
+/* ════════════════════════════════════════
+   STAFF CARD GRID  (card view)
+   ════════════════════════════════════════ */
+.staff-cards {
+    display:               grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap:                   16px;
+    margin-bottom:         20px;
+}
+.staff-card {
+    background:    var(--bg-card);
+    border:        1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding:       20px;
+    transition:    border-color var(--transition), transform var(--transition);
+    position:      relative;
+    overflow:      hidden;
+}
+.staff-card:hover {
+    border-color: var(--border-l);
+    transform:    translateY(-3px);
+}
+
+/* Card top row: avatar + name + status badge */
+.staff-card .card-top {
+    display:     flex;
+    align-items: center;
+    gap:         14px;
+    margin-bottom: 16px;
+}
+.staff-card .avatar-lg {
+    width:           50px;
+    height:          50px;
+    border-radius:   14px;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    font-weight:     700;
+    font-size:       1rem;
+    color:           #fff;
+    flex-shrink:     0;
+}
+.staff-card .name {
+    font-weight: 600;
+    font-size:   .95rem;
+}
+.staff-card .role {
+    font-size:  .78rem;
+    color:      var(--text-2);
+    margin-top: 2px;
+}
+
+/* 2-column meta grid inside each card */
+.staff-card .card-meta {
+    display:               grid;
+    grid-template-columns: 1fr 1fr;
+    gap:                   8px;
+    margin-bottom:         14px;
+}
+.staff-card .meta-item label {
+    font-size:      .65rem;
+    font-weight:    700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color:          var(--text-3);
+    display:        block;
+    margin-bottom:  2px;
+}
+.staff-card .meta-item span {
+    font-size: .8rem;
+}
+
+/* Action buttons row */
+.staff-card .card-actions {
+    display: flex;
+    gap:     8px;
+}
+
+
+/* ════════════════════════════════════════
+   PAYROLL SUMMARY
+   ════════════════════════════════════════ */
+.payroll-row {
+    display:         flex;
+    justify-content: space-between;
+    align-items:     center;
+    padding:         12px 0;
+    border-bottom:   1px solid var(--border);
+    font-size:       .84rem;
+}
+.payroll-row:last-child { border-bottom: none; }
+
+.payroll-total {
+    padding-top:  14px;
+    border-top:   2px solid var(--border-l);
+    margin-top:   4px;
+    font-weight:  700;
+    font-size:    .9rem;
+}
+.payroll-grand {
+    font-family:    'DM Serif Display', serif;
+    font-size:      1.15rem;
+    color:          var(--accent-l);
+    letter-spacing: -.02em;
+}
+
+
+/* ════════════════════════════════════════
+   MODAL
+   ════════════════════════════════════════ */
+.modal-backdrop {
+    position:        fixed;
+    inset:           0;
+    background:      rgba(0, 0, 0, .75);
+    z-index:         1000;
+    display:         none;
+    align-items:     center;
+    justify-content: center;
+    padding:         20px;
+    backdrop-filter: blur(4px);
+}
+.modal-backdrop.open { display: flex; }
+
+.modal {
+    background:  var(--bg-2);
+    border:      1px solid var(--border-l);
+    border-radius: var(--radius-lg);
+    width:       100%;
+    max-width:   560px;
+    max-height:  90vh;
+    overflow-y:  auto;
+    animation:   modalIn .25s ease;
+}
+@keyframes modalIn {
+    from { opacity: 0; transform: scale(.96) translateY(12px); }
+    to   { opacity: 1; transform: scale(1)   translateY(0);    }
+}
+
+.modal-header {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    padding:         22px 24px 0;
+}
+.modal-title {
+    font-family:  'DM Serif Display', serif;
+    font-size:    1.25rem;
+    font-weight:  400;
+}
+.modal-close {
+    background:    none;
+    border:        none;
+    color:         var(--text-3);
+    cursor:        pointer;
+    font-size:     1.3rem;
+    padding:       4px;
+    border-radius: 6px;
+    transition:    color var(--transition);
+    line-height:   1;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-body { padding: 20px 24px 24px; }
+
+
+/* ════════════════════════════════════════
+   FORM INSIDE MODAL
+   ════════════════════════════════════════ */
+.form-grid {
+    display:               grid;
+    grid-template-columns: 1fr 1fr;
+    gap:                   14px;
+}
+.form-group {
+    display:        flex;
+    flex-direction: column;
+    gap:            6px;
+}
+.form-group.full { grid-column: 1 / -1; }
+
+.form-label {
+    font-size:      .72rem;
+    font-weight:    700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color:          var(--text-3);
+}
+.form-input {
+    background:    var(--bg-3);
+    border:        1px solid var(--border-l);
+    color:         var(--text);
+    border-radius: var(--radius);
+    padding:       9px 13px;
+    font-family:   'DM Sans', sans-serif;
+    font-size:     .85rem;
+    outline:       none;
+    transition:    border-color var(--transition);
+    width:         100%;
+}
+.form-input:focus        { border-color: var(--accent); }
+.form-input::placeholder { color:        var(--text-3); }
+select.form-input        { cursor:       pointer; }
+
+.form-actions {
+    display:         flex;
+    gap:             10px;
+    justify-content: flex-end;
+    margin-top:      20px;
+    padding-top:     16px;
+    border-top:      1px solid var(--border);
+}
+
+
+/* ════════════════════════════════════════
+   BUTTONS  (extra variants for staff page)
+   ════════════════════════════════════════ */
+.btn-danger {
+    background:   transparent;
+    color:        var(--red);
+    border-color: var(--red-dim);
+}
+.btn-danger:hover { background: var(--red-dim); }
+
+.btn-icon {
+    width:           32px;
+    height:          32px;
+    padding:         0;
+    justify-content: center;
+    border-radius:   8px;
+}
+
+
+/* ════════════════════════════════════════
+   TOAST NOTIFICATION
+   ════════════════════════════════════════ */
+.toast {
+    position:      fixed;
+    bottom:        24px;
+    right:         24px;
+    z-index:       2000;
+    background:    var(--bg-card);
+    border:        1px solid var(--border-l);
+    border-radius: var(--radius);
+    padding:       12px 18px;
+    display:       flex;
+    align-items:   center;
+    gap:           10px;
+    font-size:     .83rem;
+    box-shadow:    0 8px 32px rgba(0, 0, 0, .5);
+    transform:     translateY(80px);
+    opacity:       0;
+    transition:    all .3s ease;
+    max-width:     320px;
+    pointer-events: none;
+}
+.toast.show {
+    transform:      translateY(0);
+    opacity:        1;
+    pointer-events: auto;
+}
+.toast.toast-success { border-left: 3px solid var(--green); }
+.toast.toast-danger  { border-left: 3px solid var(--red);   }
+
+
+/* ════════════════════════════════════════
+   ENTRANCE ANIMATIONS
+   ════════════════════════════════════════ */
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0);    }
+}
+.anim-1 { animation: fadeUp .3s      ease both; }
+.anim-2 { animation: fadeUp .3s .06s ease both; }
+.anim-3 { animation: fadeUp .3s .12s ease both; }
+.anim-4 { animation: fadeUp .3s .18s ease both; }
+.anim-5 { animation: fadeUp .3s .24s ease both; }
+.anim-6 { animation: fadeUp .3s .30s ease both; }
+
+
+/* ════════════════════════════════════════
+   RESPONSIVE
+   ════════════════════════════════════════ */
+@media (max-width: 900px) {
+    .grid-2    { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+    .page-header  { flex-direction: column; }
+    .stats-grid   { grid-template-columns: 1fr 1fr; }
+    .staff-cards  { grid-template-columns: 1fr; }
+}
+@media (max-width: 400px) {
+    .stats-grid { grid-template-columns: 1fr; }
+}
