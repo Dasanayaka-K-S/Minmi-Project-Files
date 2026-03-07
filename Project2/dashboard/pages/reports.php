@@ -4,8 +4,12 @@
 //  Place in: dashboard/pages/reports.php
 // ============================================================
 
+require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 
+// ══════════════════════════════════════════════════════════════
+//  FETCH ALL DATA FROM DB
+// ══════════════════════════════════════════════════════════════
 $orders           = $pdo->query("SELECT * FROM orders")->fetchAll();
 $delivered_orders = array_values(array_filter($orders, fn($o) => $o['status'] === 'Delivered'));
 $cancelled        = array_values(array_filter($orders, fn($o) => $o['status'] === 'Cancelled'));
@@ -75,13 +79,29 @@ JS;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<!-- ═══════════════════════════════════════
+<!-- ══════════════════════════════════════
      PAGE HEADER
-     ═══════════════════════════════════════ -->
-<div class="page-header">
+     ══════════════════════════════════════ -->
+<div class="page-header no-print">
     <div>
         <h1 style="font-family:'DM Serif Display',serif;font-size:1.9rem;font-weight:400;letter-spacing:-.03em">Reports</h1>
         <p style="color:var(--text-2);font-size:.85rem;margin-top:4px">Business performance summary and analytics.</p>
+    </div>
+    <button class="btn btn-primary" onclick="exportPDF()">🖨️ Export PDF</button>
+</div>
+
+<!-- PDF Header (only shows when printing) -->
+<div class="pdf-header print-only">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;
+                border-bottom:2px solid #e8622a;padding-bottom:16px;margin-bottom:24px">
+        <div>
+            <div style="font-size:1.6rem;font-weight:700;color:#e8622a">🔥 Minmi Restaurent</div>
+            <div style="font-size:.85rem;color:#888;margin-top:4px">Business Performance Report</div>
+        </div>
+        <div style="text-align:right;font-size:.8rem;color:#888">
+            <div>Generated: <?= $generated_at ?></div>
+            <div style="margin-top:4px">All time data</div>
+        </div>
     </div>
 </div>
 
@@ -94,67 +114,59 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <?php else: ?>
 
-<!-- ═══════════════════════════════════════
-  SECTION 1 — TOTAL REVENUE BREAKDOWN
-     ═══════════════════════════════════════ -->
-<div class="card report-section" id="sec-revenue">
-    <div class="card-header">
-        <div class="card-title">💰 Total Revenue Breakdown</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-revenue','Total Revenue Breakdown')">🖨️ Print PDF</button>
+<!-- ══════════════════════════════════════
+     SECTION 1 — KPI STATS
+     ══════════════════════════════════════ -->
+<div class="pdf-section-title print-only">📊 Key Performance Indicators</div>
+<div class="stats-grid">
+    <div class="stat-card orange">
+        <div class="stat-icon">💰</div>
+        <div class="stat-label">Total Revenue</div>
+        <div class="stat-value">Rs. <?= number_format($total_rev, 0) ?></div>
+        <div class="stat-sub">Delivered orders only</div>
     </div>
-    <!-- How it's calculated -->
-    <div class="calc-box">
-        <div class="calc-title">How Total Revenue is Calculated</div>
-        <div class="calc-steps">
-            <div class="calc-step">
-                <span class="calc-num">1</span>
-                <span>Only <strong>Delivered</strong> orders are counted — Pending, Cancelled and Processing are excluded.</span>
-            </div>
-            <div class="calc-step">
-                <span class="calc-num">2</span>
-                <span>All delivered order totals are summed: <code><?= count($delivered_orders) ?> orders × avg $<?= number_format($avg_order,2) ?></code></span>
-            </div>
-            <div class="calc-step">
-                <span class="calc-num">3</span>
-                <span>Cancellation rate = <code>(<?= count($cancelled) ?> cancelled ÷ <?= count($orders) ?> total) × 100 = <?= $cancel_rate ?>%</code></span>
-            </div>
-        </div>
+    <div class="stat-card green">
+        <div class="stat-icon">📊</div>
+        <div class="stat-label">Avg. Order Value</div>
+        <div class="stat-value">Rs. <?= number_format($avg_order, 2) ?></div>
+        <div class="stat-sub">Per delivered order</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px">
-        <?php foreach([
-            ['💰','Total Revenue',     '$'.number_format($total_rev,0),    '#e8622a'],
-            ['📊','Avg Order Value',   '$'.number_format($avg_order,2),    '#3ecf8e'],
-            ['🏆','Highest Order',     '$'.number_format($top_order,2),    '#4e9cf7'],
-            ['🚫','Cancellation Rate', $cancel_rate.'%',                   '#e84242'],
-        ] as [$ic,$lb,$val,$col]): ?>
-        <div class="metric-box">
-            <div class="metric-icon"><?= $ic ?></div>
-            <div class="metric-label"><?= $lb ?></div>
-            <div class="metric-value" style="color:<?= $col ?>"><?= $val ?></div>
-        </div>
-        <?php endforeach; ?>
+    <div class="stat-card blue">
+        <div class="stat-icon">🏆</div>
+        <div class="stat-label">Highest Order</div>
+        <div class="stat-value">Rs. <?= number_format($top_order, 2) ?></div>
+        <div class="stat-sub">Single order record</div>
+    </div>
+    <div class="stat-card red">
+        <div class="stat-icon">🚫</div>
+        <div class="stat-label">Cancellation Rate</div>
+        <div class="stat-value"><?= $cancel_rate ?>%</div>
+        <div class="stat-sub"><?= count($cancelled) ?> cancelled orders</div>
     </div>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-  SECTION 2 — ORDER STATUS BREAKDOWN
-     ═══════════════════════════════════════ -->
-<div class="card report-section" id="sec-orders">
+<!-- ══════════════════════════════════════
+     SECTION 2 — ORDER STATUS BREAKDOWN
+     ══════════════════════════════════════ -->
+<div class="pdf-section-title print-only">📦 Order & Payment Breakdown</div>
+<div class="report-section card" id="sec-orders">
     <div class="card-header">
         <div class="card-title">📦 Order Status Breakdown</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-orders','Order Status Breakdown')">🖨️ Print PDF</button>
+        <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-orders','Order Status Breakdown')">🖨️ Print</button>
     </div>
+
+    <!-- How it's calculated -->
     <div class="calc-box">
         <div class="calc-title">How Order Statuses Work</div>
         <div class="calc-steps">
-            <div class="calc-step"><span class="calc-num">1</span><span>Every order in the system has one of 4 statuses: <strong>Delivered, Pending, Processing, Cancelled</strong>.</span></div>
+            <div class="calc-step"><span class="calc-num">1</span><span>Every order has one of 4 statuses: <strong>Delivered, Pending, Processing, Cancelled</strong>.</span></div>
             <div class="calc-step"><span class="calc-num">2</span><span>Percentages = (status count ÷ <?= count($orders) ?> total orders) × 100</span></div>
-            <div class="calc-step"><span class="calc-num">3</span><span>Revenue is only added when status is <strong>Delivered</strong>.</span></div>
+            <div class="calc-step"><span class="calc-num">3</span><span>Revenue is only counted from <strong>Delivered</strong> orders.</span></div>
         </div>
     </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-        <div class="chart-box"><canvas id="orderStatusChart"></canvas></div>
+        <div class="chart-box print-chart"><canvas id="orderStatusChart"></canvas></div>
         <div style="display:flex;flex-direction:column;gap:8px;justify-content:center">
             <?php
             $st_colors = ['Delivered'=>'#3ecf8e','Pending'=>'#f5c842','Processing'=>'#4e9cf7','Cancelled'=>'#e84242'];
@@ -162,33 +174,72 @@ require_once __DIR__ . '/../includes/header.php';
             foreach ($status_counts as $st => $cnt):
                 $pct = count($orders) > 0 ? round(($cnt / count($orders)) * 100, 1) : 0;
             ?>
-            <div class="status-breakdown-row">
-                <span class="sb-icon"><?= $st_icons[$st] ?? '•' ?></span>
-                <span class="sb-label"><?= $st ?></span>
-                <div class="sb-bar-wrap">
-                    <div class="sb-bar" style="width:<?= $pct ?>%;background:<?= $st_colors[$st] ?? '#ccc' ?>"></div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+                <span style="font-size:1rem;width:20px;text-align:center"><?= $st_icons[$st] ?? '•' ?></span>
+                <span style="font-size:.82rem;font-weight:500;min-width:80px"><?= $st ?></span>
+                <div style="flex:1;height:7px;background:var(--bg-3);border-radius:4px;overflow:hidden">
+                    <div style="width:<?= $pct ?>%;height:100%;background:<?= $st_colors[$st] ?? '#ccc' ?>;border-radius:4px"></div>
                 </div>
-                <span class="sb-count"><?= $cnt ?></span>
-                <span class="sb-pct"><?= $pct ?>%</span>
+                <span style="font-size:.8rem;font-weight:700;min-width:24px;text-align:right"><?= $cnt ?></span>
+                <span style="font-size:.75rem;color:var(--text-3);min-width:40px;text-align:right"><?= $pct ?>%</span>
             </div>
             <?php endforeach; ?>
         </div>
     </div>
 </div>
 
+<!-- ══════════════════════════════════════
+     SECTION 3 — PAYMENT METHODS
+     ══════════════════════════════════════ -->
+<div class="report-section card" id="sec-payment">
+    <div class="card-header">
+        <div class="card-title">💳 Payment Methods</div>
+        <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-payment','Payment Methods')">🖨️ Print</button>
+    </div>
+    <div class="calc-box">
+        <div class="calc-title">How Payment Split is Calculated</div>
+        <div class="calc-steps">
+            <div class="calc-step"><span class="calc-num">1</span><span>Each order's <strong>payment</strong> column is checked (case-insensitive).</span></div>
+            <div class="calc-step"><span class="calc-num">2</span><span>Card = <?= $card_orders ?>, Cash = <?= $cash_orders ?>, Other = <?= $other_orders ?> out of <?= count($orders) ?> total orders.</span></div>
+            <div class="calc-step"><span class="calc-num">3</span><span>Percentage = (type count ÷ total orders) × 100</span></div>
+        </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+        <div class="chart-box print-chart"><canvas id="paymentChart"></canvas></div>
+        <div style="display:flex;flex-direction:column;gap:12px;justify-content:center">
+            <?php foreach([
+                ['💳','Card',  $card_orders,  '#4e9cf7'],
+                ['💵','Cash',  $cash_orders,  '#3ecf8e'],
+                ['📱','Other', $other_orders, '#a855f7'],
+            ] as [$ic,$lb,$cnt,$col]):
+                $pct = count($orders) > 0 ? round(($cnt / count($orders)) * 100, 1) : 0;
+            ?>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+                <span style="font-size:1rem;width:20px;text-align:center"><?= $ic ?></span>
+                <span style="font-size:.82rem;font-weight:500;min-width:80px"><?= $lb ?></span>
+                <div style="flex:1;height:7px;background:var(--bg-3);border-radius:4px;overflow:hidden">
+                    <div style="width:<?= $pct ?>%;height:100%;background:<?= $col ?>;border-radius:4px"></div>
+                </div>
+                <span style="font-size:.8rem;font-weight:700;min-width:24px;text-align:right"><?= $cnt ?></span>
+                <span style="font-size:.75rem;color:var(--text-3);min-width:40px;text-align:right"><?= $pct ?>%</span>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</div>
 
-<!-- ═══════════════════════════════════════
-  SECTION 3 — TOP SELLING ITEMS
-     ═══════════════════════════════════════ -->
-<div class="card report-section" id="sec-sellers">
+<!-- ══════════════════════════════════════
+     SECTION 4 — TOP SELLING ITEMS
+     ══════════════════════════════════════ -->
+<div class="report-section card" id="sec-sellers">
     <div class="card-header">
         <div class="card-title">🍽️ Top Selling Items</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-sellers','Top Selling Items')">🖨️ Print PDF</button>
+        <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-sellers','Top Selling Items')">🖨️ Print</button>
     </div>
     <div class="calc-box">
         <div class="calc-title">How Top Items are Calculated</div>
         <div class="calc-steps">
-            <div class="calc-step"><span class="calc-num">1</span><span>Each order's <strong>items</strong> field is parsed (supports plain text and JSON format).</span></div>
+            <div class="calc-step"><span class="calc-num">1</span><span>Each order's <strong>items</strong> field is parsed (supports plain text and JSON).</span></div>
             <div class="calc-step"><span class="calc-num">2</span><span>Each item name is counted across <strong>all orders</strong> regardless of status.</span></div>
             <div class="calc-step"><span class="calc-num">3</span><span>Items are sorted by frequency — top 5 are shown.</span></div>
         </div>
@@ -202,65 +253,59 @@ require_once __DIR__ . '/../includes/header.php';
             $pct = round(($count / $max_sales) * 100);
     ?>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-        <span class="rank-badge"><?= $rank++ ?></span>
+        <span style="background:var(--accent);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;flex-shrink:0"><?= $rank++ ?></span>
         <span style="min-width:160px;font-size:.85rem;font-weight:500"><?= htmlspecialchars(mb_strimwidth($name,0,24,'…')) ?></span>
         <div style="flex:1;height:8px;background:var(--bg-3);border-radius:4px;overflow:hidden">
             <div style="width:<?= $pct ?>%;height:100%;background:var(--accent);border-radius:4px;transition:width .6s"></div>
         </div>
-        <span style="font-size:.8rem;color:var(--text-2);min-width:50px;text-align:right"><?= $count ?> orders</span>
+        <span style="font-size:.8rem;color:var(--text-2);min-width:60px;text-align:right"><?= $count ?> orders</span>
     </div>
     <?php endforeach; endif; ?>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-  SECTION 4 — PAYMENT METHODS
-     ═══════════════════════════════════════ -->
-<div class="card report-section" id="sec-payment">
+<!-- ══════════════════════════════════════
+     SECTION 5 — TOP CUSTOMERS
+     ══════════════════════════════════════ -->
+<div class="report-section card" id="sec-customers">
     <div class="card-header">
-        <div class="card-title">💳 Payment Methods</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-payment','Payment Methods')">🖨️ Print PDF</button>
+        <div class="card-title">👥 Top 5 Customers by Spend</div>
+        <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-customers','Top Customers by Spend')">🖨️ Print</button>
     </div>
     <div class="calc-box">
-        <div class="calc-title">How Payment Split is Calculated</div>
+        <div class="calc-title">How Top Customers are Ranked</div>
         <div class="calc-steps">
-            <div class="calc-step"><span class="calc-num">1</span><span>Each order's <strong>payment</strong> column is checked (case-insensitive match).</span></div>
-            <div class="calc-step"><span class="calc-num">2</span><span>Card = <?= $card_orders ?>, Cash = <?= $cash_orders ?>, Other = <?= $other_orders ?> out of <?= count($orders) ?> total orders.</span></div>
-            <div class="calc-step"><span class="calc-num">3</span><span>Percentage = (type count ÷ total orders) × 100</span></div>
+            <div class="calc-step"><span class="calc-num">1</span><span>All customers sorted by <strong>total_spent</strong> column (descending).</span></div>
+            <div class="calc-step"><span class="calc-num">2</span><span>Top 5 selected and displayed with bar chart.</span></div>
         </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-        <div class="chart-box"><canvas id="paymentChart"></canvas></div>
-        <div style="display:flex;flex-direction:column;gap:12px;justify-content:center">
-            <?php foreach([
-                ['💳','Card',  $card_orders,  '#4e9cf7'],
-                ['💵','Cash',  $cash_orders,  '#3ecf8e'],
-                ['📱','Other', $other_orders, '#a855f7'],
-            ] as [$ic,$lb,$cnt,$col]):
-                $pct = count($orders) > 0 ? round(($cnt / count($orders)) * 100, 1) : 0;
-            ?>
-            <div class="status-breakdown-row">
-                <span class="sb-icon"><?= $ic ?></span>
-                <span class="sb-label"><?= $lb ?></span>
-                <div class="sb-bar-wrap">
-                    <div class="sb-bar" style="width:<?= $pct ?>%;background:<?= $col ?>"></div>
-                </div>
-                <span class="sb-count"><?= $cnt ?></span>
-                <span class="sb-pct"><?= $pct ?>%</span>
-            </div>
-            <?php endforeach; ?>
+    <?php if (empty($top_customers)): ?>
+    <div style="text-align:center;padding:24px;color:var(--text-3);font-size:.84rem">No customer data yet.</div>
+    <?php else: ?>
+    <div class="chart-box print-chart" style="margin-top:12px"><canvas id="topCustChart"></canvas></div>
+    <div style="margin-top:16px">
+        <?php $rank=1; foreach($top_customers as $c): ?>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem">
+            <span style="background:var(--accent);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;flex-shrink:0"><?= $rank++ ?></span>
+            <span style="flex:1;font-weight:600"><?= htmlspecialchars($c['name']) ?></span>
+            <span class="badge badge-gray"><?= htmlspecialchars($c['status'] ?? '') ?></span>
+            <strong style="color:var(--accent-l)">Rs. <?= number_format($c['total_spent'],2) ?></strong>
         </div>
+        <?php endforeach; ?>
     </div>
+    <?php endif; ?>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-  SECTION 5 — FINANCIAL SUMMARY
-     ═══════════════════════════════════════ -->
-<div class="card report-section" id="sec-financial">
+<!-- ══════════════════════════════════════
+     SECTION 6 — FINANCIAL SUMMARY TABLE
+     ══════════════════════════════════════ -->
+<div class="pdf-section-title print-only">💰 Financial Summary</div>
+<div class="report-section card" id="sec-financial">
     <div class="card-header">
         <div class="card-title">📋 Financial Summary</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-financial','Financial Summary')">🖨️ Print PDF</button>
+        <div style="display:flex;gap:8px">
+            <span class="badge badge-gray">All time</span>
+            <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-financial','Financial Summary')">🖨️ Print</button>
+        </div>
     </div>
     <div class="calc-box">
         <div class="calc-title">Data Sources</div>
@@ -273,25 +318,25 @@ require_once __DIR__ . '/../includes/header.php';
     <?php
     $metrics = [
         ['📦 Total Orders',             count($orders),                              ''],
-        ['✅ Delivered Orders',          count($delivered_orders),                   'var(--green)'],
-        ['❌ Cancelled Orders',          count($cancelled),                           'var(--red)'],
-        ['⏳ Pending Orders',            count($pending),                             'var(--yellow)'],
-        ['🔄 Processing Orders',         count($processing),                          'var(--blue)'],
-        ['💰 Total Revenue (Delivered)', '$'.number_format($total_rev,2),             'var(--accent-l)'],
-        ['📊 Average Order Value',       '$'.number_format($avg_order,2),             ''],
-        ['🏆 Highest Single Order',      '$'.number_format($top_order,2),             ''],
-        ['🚫 Cancellation Rate',         $cancel_rate.'%',                            'var(--yellow)'],
-        ['💳 Card Payments',             $card_orders.' orders',                      'var(--blue)'],
-        ['💵 Cash Payments',             $cash_orders.' orders',                      'var(--green)'],
+        ['✅ Delivered Orders',          count($delivered_orders),                   'var(--green,#3ecf8e)'],
+        ['❌ Cancelled Orders',          count($cancelled),                           'var(--red,#e84242)'],
+        ['⏳ Pending Orders',            count($pending),                             'var(--yellow,#f5c842)'],
+        ['🔄 Processing Orders',         count($processing),                          'var(--blue,#4e9cf7)'],
+        ['💰 Total Revenue (Delivered)', 'Rs. ' . number_format($total_rev, 2),       'var(--accent-l,#e8622a)'],
+        ['📊 Average Order Value',       'Rs. ' . number_format($avg_order, 2),       ''],
+        ['🏆 Highest Single Order',      'Rs. ' . number_format($top_order, 2),       ''],
+        ['🚫 Cancellation Rate',         $cancel_rate . '%',                          'var(--yellow,#f5c842)'],
+        ['💳 Card Payments',             $card_orders . ' orders',                    'var(--blue,#4e9cf7)'],
+        ['💵 Cash Payments',             $cash_orders . ' orders',                    'var(--green,#3ecf8e)'],
         ['👥 Total Customers',           count($customers),                           ''],
-        ['⭐ VIP Customers',             $vip_count,                                  'var(--accent-l)'],
-        ['🆕 New Customers',             $new_cust,                                   'var(--blue)'],
-        ['💸 Total Customer Spend',      '$'.number_format($total_cust_revenue,2),    'var(--accent-l)'],
+        ['⭐ VIP Customers',             $vip_count,                                  'var(--accent-l,#e8622a)'],
+        ['🆕 New Customers',             $new_cust,                                   'var(--blue,#4e9cf7)'],
+        ['💸 Total Customer Spend',      'Rs. ' . number_format($total_cust_revenue, 2), 'var(--accent-l,#e8622a)'],
         ['🍽️ Active Menu Items',         $active_menu_count,                          ''],
         ['👨‍🍳 Active Staff',              $active_staff,                               ''],
-        ['⚠️ Low Stock Items',           $low_stock_count,                            'var(--red)'],
+        ['⚠️ Low Stock Items',           $low_stock_count,                            'var(--red,#e84242)'],
     ];
-    foreach ($metrics as [$label,$value,$color]):
+    foreach ($metrics as [$label, $value, $color]):
     ?>
     <div style="display:flex;justify-content:space-between;align-items:center;
          padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem">
@@ -301,51 +346,20 @@ require_once __DIR__ . '/../includes/header.php';
     <?php endforeach; ?>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-  SECTION 6 — TOP CUSTOMERS
-     ═══════════════════════════════════════ -->
-<div class="card report-section" id="sec-customers">
-    <div class="card-header">
-        <div class="card-title">👥 Top 5 Customers by Spend</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-customers','Top Customers by Spend')">🖨️ Print PDF</button>
-    </div>
-    <div class="calc-box">
-        <div class="calc-title">How Top Customers are Ranked</div>
-        <div class="calc-steps">
-            <div class="calc-step"><span class="calc-num">1</span><span>All customers are sorted by <strong>total_spent</strong> column (descending).</span></div>
-            <div class="calc-step"><span class="calc-num">2</span><span>Top 5 are selected and displayed with their spend amount.</span></div>
-        </div>
-    </div>
-    <?php if (empty($top_customers)): ?>
-    <div style="text-align:center;padding:24px;color:var(--text-3);font-size:.84rem">No customer data yet.</div>
-    <?php else: ?>
-    <div class="chart-box" style="margin-top:12px"><canvas id="topCustChart"></canvas></div>
-    <div style="margin-top:16px">
-        <?php $rank=1; foreach($top_customers as $c): ?>
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;
-                    border-bottom:1px solid var(--border);font-size:.84rem">
-            <span class="rank-badge"><?= $rank++ ?></span>
-            <span style="flex:1;font-weight:600"><?= htmlspecialchars($c['name']) ?></span>
-            <span class="badge badge-gray"><?= htmlspecialchars($c['status'] ?? '') ?></span>
-            <strong style="color:var(--accent-l)">$<?= number_format($c['total_spent'],2) ?></strong>
-        </div>
-        <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
-</div>
-
-
-<!-- ═══════════════════════════════════════
-  SECTION 7 — LOW STOCK ALERT
-     ═══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════
+     SECTION 7 — LOW STOCK ALERT
+     ══════════════════════════════════════ -->
 <?php if ($low_stock_count > 0):
     $low_items = array_filter($inventory, fn($i) => $i['stock'] <= $i['min_stock']);
 ?>
-<div class="card report-section" id="sec-stock">
+<div class="pdf-section-title print-only">⚠️ Inventory Alerts</div>
+<div class="report-section card" id="sec-stock">
     <div class="card-header">
         <div class="card-title">⚠️ Low Stock Alert</div>
-        <button class="btn btn-ghost btn-sm print-btn" onclick="printSection('sec-stock','Low Stock Alert')">🖨️ Print PDF</button>
+        <div style="display:flex;gap:8px">
+            <span class="badge badge-red"><?= $low_stock_count ?> items</span>
+            <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-stock','Low Stock Alert')">🖨️ Print</button>
+        </div>
     </div>
     <div class="calc-box">
         <div class="calc-title">How Low Stock is Detected</div>
@@ -365,7 +379,7 @@ require_once __DIR__ . '/../includes/header.php';
             <tr>
                 <td><strong><?= htmlspecialchars($item['name']) ?></strong></td>
                 <td style="color:var(--text-2)"><?= htmlspecialchars($item['category'] ?? '—') ?></td>
-                <td><strong style="color:var(--red)"><?= $item['stock'] ?> <?= htmlspecialchars($item['unit'] ?? '') ?></strong></td>
+                <td><strong style="color:var(--red,#e84242)"><?= $item['stock'] ?> <?= htmlspecialchars($item['unit'] ?? '') ?></strong></td>
                 <td style="color:var(--text-3)"><?= $item['min_stock'] ?></td>
                 <td><span class="badge badge-red">Low Stock</span></td>
             </tr>
@@ -376,54 +390,70 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
+<!-- PDF Footer -->
+<div class="print-only" style="margin-top:40px;padding-top:16px;border-top:1px solid #ddd;
+     display:flex;justify-content:space-between;font-size:.75rem;color:#999">
+    <span>🔥 Minmi Restaurent — Confidential</span>
+    <span>Generated: <?= $generated_at ?></span>
+</div>
+
 <?php endif; // end empty check ?>
 
-<!-- ═══════════════════════════════════════
-     PRINT IFRAME (hidden)
-     ═══════════════════════════════════════ -->
+<!-- Hidden print iframe -->
 <iframe id="printFrame" style="display:none"></iframe>
 
-<!-- ═══════════════════════════════════════
+<!-- ══════════════════════════════════════
      STYLES
-     ═══════════════════════════════════════ -->
+     ══════════════════════════════════════ -->
 <style>
-/* Calculation box — hidden on dashboard, only visible in printed PDF */
-.calc-box{display:none}
-.calc-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
-    color:var(--accent);margin-bottom:10px}
+/* Calculation box */
+.calc-box{background:var(--bg-3);border-left:3px solid var(--accent);border-radius:0 var(--radius) var(--radius) 0;padding:14px 16px;margin:12px 0}
+.calc-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:10px}
 .calc-steps{display:flex;flex-direction:column;gap:8px}
 .calc-step{display:flex;align-items:flex-start;gap:10px;font-size:.82rem;color:var(--text-2);line-height:1.5}
-.calc-num{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;
-    display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;margin-top:1px}
+.calc-num{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;margin-top:1px}
 .calc-step code{background:var(--bg-2);padding:1px 6px;border-radius:4px;font-size:.78rem;color:var(--accent-l)}
+.report-section{margin-bottom:16px}
 
-/* Metric boxes */
-.metric-box{background:var(--bg-3);border-radius:var(--radius);padding:16px;text-align:center}
-.metric-icon{font-size:1.5rem;margin-bottom:6px}
-.metric-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:4px}
-.metric-value{font-size:1.2rem;font-weight:700}
+/* Print-only elements hidden on screen */
+.print-only{display:none}
+.pdf-section-title{display:none}
 
-/* Status breakdown rows */
-.status-breakdown-row{display:flex;align-items:center;gap:8px;padding:6px 0}
-.sb-icon{font-size:1rem;width:20px;text-align:center}
-.sb-label{font-size:.82rem;font-weight:500;min-width:80px}
-.sb-bar-wrap{flex:1;height:7px;background:var(--bg-3);border-radius:4px;overflow:hidden}
-.sb-bar{height:100%;border-radius:4px;transition:width .5s}
-.sb-count{font-size:.8rem;font-weight:700;min-width:24px;text-align:right}
-.sb-pct{font-size:.75rem;color:var(--text-3);min-width:40px;text-align:right}
-
-/* Rank badge */
-.rank-badge{background:var(--accent);color:#fff;border-radius:50%;width:24px;height:24px;
-    display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;flex-shrink:0}
-
-/* Print button */
-.print-btn{font-size:.75rem !important;padding:4px 10px !important}
+/* ── PRINT / PDF STYLES ── */
+@media print {
+    .sidebar,.topbar,.sidebar-overlay,.no-print,.btn,button{display:none !important}
+    .print-only{display:block !important}
+    .pdf-section-title{display:block !important;font-size:1rem;font-weight:700;color:#e8622a;margin:24px 0 10px;padding-bottom:6px;border-bottom:1px solid #e8622a}
+    body,html{background:#fff !important;color:#111 !important}
+    .main-content,.page-wrapper,main{margin:0 !important;padding:16px !important}
+    .card{border:1px solid #ddd !important;border-radius:8px !important;background:#fff !important;margin-bottom:16px !important;page-break-inside:avoid;box-shadow:none !important}
+    .stats-grid{display:grid !important;grid-template-columns:repeat(4,1fr) !important;gap:10px !important;margin-bottom:16px !important}
+    .stat-card{border:1px solid #ddd !important;border-radius:8px !important;padding:12px !important;background:#fff !important;box-shadow:none !important;page-break-inside:avoid}
+    .stat-value{color:#111 !important;font-size:1.3rem !important}
+    .print-chart{height:180px !important}
+    canvas{max-height:180px !important}
+    table{width:100% !important;border-collapse:collapse !important}
+    th{background:#f5f5f5 !important;color:#333 !important;padding:8px !important;font-size:.75rem !important}
+    td{padding:8px !important;font-size:.78rem !important;border-bottom:1px solid #eee !important;color:#333 !important}
+    .badge{border:1px solid #ccc !important;color:#333 !important;background:#f5f5f5 !important;padding:2px 8px !important;border-radius:20px !important;font-size:.65rem !important}
+    .calc-box{background:#fff8f5 !important;border-left:3px solid #e8622a !important}
+    .calc-num{background:#e8622a !important}
+}
 </style>
 
-<!-- ═══════════════════════════════════════
-     JAVASCRIPT — Section Print
-     ═══════════════════════════════════════ -->
+<!-- ══════════════════════════════════════
+     JAVASCRIPT
+     ══════════════════════════════════════ -->
 <script>
+function exportPDF() {
+    const btn = document.querySelector('button[onclick="exportPDF()"]');
+    if (btn) { btn.textContent = '⏳ Preparing…'; btn.disabled = true; }
+    setTimeout(() => {
+        window.print();
+        if (btn) { btn.textContent = '🖨️ Export PDF'; btn.disabled = false; }
+    }, 400);
+}
+
 function printSection(sectionId, title) {
     const section = document.getElementById(sectionId);
     if (!section) return;
@@ -431,20 +461,17 @@ function printSection(sectionId, title) {
     // Capture canvas charts as images
     const canvases = section.querySelectorAll('canvas');
     const chartImages = {};
-    canvases.forEach(c => {
-        chartImages[c.id] = c.toDataURL('image/png');
-    });
+    canvases.forEach(c => { chartImages[c.id] = c.toDataURL('image/png'); });
 
-    // Build the HTML content
     let sectionHTML = section.innerHTML;
-
-    // Replace canvases with their image snapshots
     canvases.forEach(c => {
-        const placeholder = `<canvas id="${c.id}"`;
-        const replacement = `<img src="${chartImages[c.id]}" style="max-width:100%;height:220px;object-fit:contain"`;
-        sectionHTML = sectionHTML.replace(new RegExp(`<canvas id="${c.id}"[^>]*></canvas>`,'g'), replacement + '>');
+        sectionHTML = sectionHTML.replace(
+            new RegExp(`<canvas id="${c.id}"[^>]*></canvas>`, 'g'),
+            `<img src="${chartImages[c.id]}" style="max-width:100%;height:220px;object-fit:contain">`
+        );
     });
 
+    const generated = <?= json_encode($generated_at) ?>;
     const printHTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -452,82 +479,26 @@ function printSection(sectionId, title) {
     <title>${title} — Minmi Restaurent</title>
     <style>
         * { box-sizing:border-box; margin:0; padding:0 }
-        body { font-family:'Segoe UI',Arial,sans-serif; font-size:13px;
-               color:#111; background:#fff; padding:32px }
-
-        /* PDF Header */
-        .pdf-top { display:flex; justify-content:space-between; align-items:flex-start;
-                   border-bottom:2px solid #e8622a; padding-bottom:14px; margin-bottom:20px }
+        body { font-family:'Segoe UI',Arial,sans-serif; font-size:13px; color:#111; background:#fff; padding:32px }
+        .pdf-top { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #e8622a; padding-bottom:14px; margin-bottom:20px }
         .pdf-brand { font-size:1.3rem; font-weight:700; color:#e8622a }
-        .pdf-sub   { font-size:.8rem; color:#888; margin-top:4px }
-        .pdf-meta  { text-align:right; font-size:.75rem; color:#888 }
-        .pdf-section-title { font-size:1rem; font-weight:700; color:#e8622a;
-                             margin-bottom:16px }
-
-        /* Calc box */
-        .calc-box  { background:#fff8f5; border-left:3px solid #e8622a;
-                     border-radius:0 6px 6px 0; padding:12px 14px; margin:12px 0 16px }
-        .calc-title{ font-size:.68rem; font-weight:700; text-transform:uppercase;
-                     letter-spacing:.07em; color:#e8622a; margin-bottom:8px }
-        .calc-steps{ display:flex; flex-direction:column; gap:7px }
-        .calc-step { display:flex; align-items:flex-start; gap:10px;
-                     font-size:.8rem; color:#444; line-height:1.5 }
-        .calc-num  { background:#e8622a; color:#fff; border-radius:50%;
-                     width:18px; height:18px; display:inline-flex;
-                     align-items:center; justify-content:center;
-                     font-size:.65rem; font-weight:700; flex-shrink:0; margin-top:1px }
-        code { background:#f0f0f0; padding:1px 5px; border-radius:3px;
-               font-size:.76rem; color:#c0392b }
-
-        /* Metric boxes */
-        .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:14px }
-        .metric-box  { border:1px solid #eee; border-radius:8px;
-                       padding:14px 10px; text-align:center }
-        .metric-icon { font-size:1.3rem; margin-bottom:5px }
-        .metric-label{ font-size:.65rem; text-transform:uppercase;
-                       letter-spacing:.06em; color:#888; margin-bottom:3px }
-        .metric-value{ font-size:1.1rem; font-weight:700 }
-
-        /* Status rows */
-        .sb-row  { display:flex; align-items:center; gap:8px; padding:6px 0 }
-        .sb-label{ font-size:.8rem; font-weight:500; min-width:80px }
-        .sb-bar-wrap { flex:1; height:7px; background:#eee; border-radius:4px; overflow:hidden }
-        .sb-bar  { height:100%; border-radius:4px }
-        .sb-count{ font-size:.78rem; font-weight:700; min-width:24px; text-align:right }
-        .sb-pct  { font-size:.72rem; color:#888; min-width:40px; text-align:right }
-
-        /* Rank badge */
-        .rank-badge { background:#e8622a; color:#fff; border-radius:50%;
-                      width:22px; height:22px; display:inline-flex;
-                      align-items:center; justify-content:center;
-                      font-size:.68rem; font-weight:700 }
-
-        /* Table */
+        .pdf-sub { font-size:.8rem; color:#888; margin-top:4px }
+        .pdf-meta { text-align:right; font-size:.75rem; color:#888 }
+        .pdf-section-title { font-size:1rem; font-weight:700; color:#e8622a; margin-bottom:16px }
+        .calc-box { background:#fff8f5; border-left:3px solid #e8622a; border-radius:0 6px 6px 0; padding:12px 14px; margin:12px 0 16px }
+        .calc-title { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:#e8622a; margin-bottom:8px }
+        .calc-steps { display:flex; flex-direction:column; gap:7px }
+        .calc-step { display:flex; align-items:flex-start; gap:10px; font-size:.8rem; color:#444; line-height:1.5 }
+        .calc-num { background:#e8622a; color:#fff; border-radius:50%; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; font-size:.65rem; font-weight:700; flex-shrink:0; margin-top:1px }
+        code { background:#f0f0f0; padding:1px 5px; border-radius:3px; font-size:.76rem; color:#c0392b }
         table { width:100%; border-collapse:collapse; margin-top:12px }
-        th { background:#f5f5f5; padding:8px 10px; font-size:.73rem;
-             text-align:left; color:#333; border-bottom:2px solid #ddd }
+        th { background:#f5f5f5; padding:8px 10px; font-size:.73rem; text-align:left; color:#333; border-bottom:2px solid #ddd }
         td { padding:8px 10px; font-size:.78rem; border-bottom:1px solid #eee; color:#333 }
-
-        /* Badge */
-        .badge { display:inline-block; padding:2px 8px; border-radius:20px;
-                 font-size:.65rem; font-weight:600; border:1px solid #ccc;
-                 background:#f5f5f5; color:#333 }
-        .badge-red    { background:#fef2f2; color:#dc2626; border-color:#fca5a5 }
-        .badge-green  { background:#f0fdf4; color:#16a34a; border-color:#86efac }
-        .badge-blue   { background:#eff6ff; color:#2563eb; border-color:#93c5fd }
-        .badge-yellow { background:#fefce8; color:#ca8a04; border-color:#fde047 }
-
-        /* Grid layouts */
-        .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px }
-        .grid-flex { display:flex; flex-direction:column; gap:8px; justify-content:center }
-
-        /* Print button hidden */
-        .print-btn, button { display:none !important }
-
-        /* Footer */
-        .pdf-footer { margin-top:32px; padding-top:12px; border-top:1px solid #ddd;
-                      display:flex; justify-content:space-between;
-                      font-size:.72rem; color:#aaa }
+        .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:.65rem; font-weight:600; border:1px solid #ccc; background:#f5f5f5; color:#333 }
+        .badge-red { background:#fef2f2; color:#dc2626; border-color:#fca5a5 }
+        .badge-green { background:#f0fdf4; color:#16a34a; border-color:#86efac }
+        .no-print, button { display:none !important }
+        .pdf-footer { margin-top:32px; padding-top:12px; border-top:1px solid #ddd; display:flex; justify-content:space-between; font-size:.72rem; color:#aaa }
     </style>
 </head>
 <body>
@@ -536,16 +507,13 @@ function printSection(sectionId, title) {
             <div class="pdf-brand">🔥 Minmi Restaurent</div>
             <div class="pdf-sub">${title}</div>
         </div>
-        <div class="pdf-meta">
-            Generated: <?= $generated_at ?><br>
-            All time data
-        </div>
+        <div class="pdf-meta">Generated: ${generated}<br>All time data</div>
     </div>
     <div class="pdf-section-title">${title}</div>
     ${sectionHTML}
     <div class="pdf-footer">
         <span>🔥 Minmi Restaurent — Confidential</span>
-        <span>Generated: <?= $generated_at ?></span>
+        <span>Generated: ${generated}</span>
     </div>
 </body>
 </html>`;
