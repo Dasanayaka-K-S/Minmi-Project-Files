@@ -553,54 +553,8 @@ require_once __DIR__ . '/../includes/header.php';
         </table>
     </div>
 </div>
-<?php endif; ?>
 
-<!-- ══════════════════════════════════════
-     SECTION 8 — POWER BI DASHBOARD
-     ══════════════════════════════════════ -->
-<div class="report-section card no-print" id="sec-powerbi">
-    <div class="card-header">
-        <div class="card-title">📊 Power BI Dashboard</div>
-        <span class="badge badge-blue">Business Intelligence</span>
-    </div>
-    <?php
-    // Check if Power BI URL is saved in settings
-    $pbi_url = '';
-    try {
-        $pbi_row = $pdo->query("SELECT value FROM settings WHERE `key`='powerbi_url'")->fetch();
-        $pbi_url = $pbi_row['value'] ?? '';
-    } catch (Exception $e) { $pbi_url = ''; }
-    ?>
-    <?php if ($pbi_url): ?>
-    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:var(--radius);margin-top:12px">
-        <iframe src="<?= htmlspecialchars($pbi_url) ?>"
-                style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;border-radius:var(--radius)"
-                allowfullscreen></iframe>
-    </div>
-    <p style="font-size:.75rem;color:var(--text-3);margin-top:8px;text-align:center">
-        Live Power BI report embedded above. <a href="<?= htmlspecialchars($pbi_url) ?>" target="_blank" style="color:var(--accent)">Open in full screen →</a>
-    </p>
-    <?php else: ?>
-    <div style="background:var(--bg-3);border:2px dashed var(--border);border-radius:var(--radius);padding:32px 24px;text-align:center;margin-top:12px">
-        <div style="font-size:2.5rem;margin-bottom:12px">📊</div>
-        <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;margin-bottom:8px">Connect Your Power BI Report</div>
-        <p style="color:var(--text-3);font-size:.83rem;line-height:1.6;max-width:480px;margin:0 auto 20px">
-            Embed your Power BI dashboard here for advanced business intelligence visualization.
-            Paste your Power BI publish URL in Settings to activate this section.
-        </p>
-        <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;text-align:left;max-width:520px;margin:0 auto 20px;font-size:.78rem">
-            <div style="font-weight:700;color:var(--text-2);margin-bottom:8px">How to embed Power BI:</div>
-            <div style="color:var(--text-3);line-height:1.8">
-                1. Open Power BI → your report → <strong>File → Embed report → Publish to web</strong><br>
-                2. Copy the <strong>embed URL</strong> (starts with https://app.powerbi.com/...)<br>
-                3. Go to <a href="settings.php" style="color:var(--accent)">Settings</a> → add key <code style="background:var(--bg-3);padding:1px 5px;border-radius:3px">powerbi_url</code> with that URL<br>
-                4. Come back here and the report will appear automatically.
-            </div>
-        </div>
-        <a href="settings.php" class="btn btn-primary">⚙️ Go to Settings</a>
-    </div>
-    <?php endif; ?>
-</div>
+<?php endif; ?>
 
 <!-- PDF Footer -->
 <div class="print-only" style="margin-top:40px;padding-top:16px;border-top:1px solid #ddd;

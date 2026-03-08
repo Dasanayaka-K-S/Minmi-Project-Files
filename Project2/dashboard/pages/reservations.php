@@ -6,22 +6,85 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
 $action   = $_POST['action']  ?? '';
 $item_id  = $_POST['item_id'] ?? '';
 $msg      = '';
 $msg_type = 'success';
 
+// ════════════════════════════════════════
+//  ACTIONS
+// ════════════════════════════════════════
+
 if ($action === 'add') {
-    $new_id = 'RES-' . strtoupper(substr(uniqid(), -6));
-    $pdo->prepare("INSERT INTO reservations (id, customer_name, email, phone, date, time, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        ->execute([$new_id, trim($_POST['customer_name']), trim($_POST['email'] ?? ''), trim($_POST['phone'] ?? ''), $_POST['date'], $_POST['time'], $_POST['status'] ?? 'Pending', trim($_POST['notes'] ?? '')]);
-    $msg = '✅ Reservation for "' . htmlspecialchars($_POST['customer_name']) . '" added!';
+    $new_id     = 'RES-' . strtoupper(substr(uniqid(), -6));
+    $cust_name  = trim($_POST['customer_name']);
+    $cust_email = trim($_POST['email']  ?? '');
+    $cust_phone = trim($_POST['phone']  ?? '');
+    $res_date   = $_POST['date'];
+    $res_time   = $_POST['time'];
+    $res_status = $_POST['status'] ?? 'Pending';
+    $res_notes  = trim($_POST['notes'] ?? '');
+
+    $pdo->prepare("INSERT INTO reservations (id, customer_name, email, phone, date, time, status, notes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        ->execute([$new_id, $cust_name, $cust_email, $cust_phone, $res_date, $res_time, $res_status, $res_notes]);
+
+    $msg = '✅ Reservation for "' . htmlspecialchars($cust_name) . '" added!';
+
+    // ── Send confirmation email if customer email provided ──
+    if ($cust_email) {
+        $formatted_date = date('l, d F Y', strtotime($res_date));
+        $formatted_time = date('g:i A',    strtotime($res_time));
+
+        $email_body = "Thank you for choosing Minmi Restaurent! Your table reservation has been received and is currently <strong>{$res_status}</strong>.
+
+<div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
+    <div style='font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e8622a;margin-bottom:12px'>📋 Reservation Details</div>
+    <table width='100%' cellpadding='6' cellspacing='0' style='font-size:.9rem;color:#333'>
+        <tr><td style='color:#888;width:40%'>Reservation ID</td><td><strong>{$new_id}</strong></td></tr>
+        <tr><td style='color:#888'>Date</td><td><strong>{$formatted_date}</strong></td></tr>
+        <tr><td style='color:#888'>Time</td><td><strong>{$formatted_time}</strong></td></tr>
+        <tr><td style='color:#888'>Status</td><td><span style='color:#e8622a;font-weight:700'>{$res_status}</span></td></tr>
+        " . ($cust_phone ? "<tr><td style='color:#888'>Phone</td><td>{$cust_phone}</td></tr>" : "") . "
+        " . ($res_notes  ? "<tr><td style='color:#888'>Notes</td><td>{$res_notes}</td></tr>"  : "") . "
+    </table>
+</div>
+
+Our team will confirm your booking shortly. If you have any questions, please contact us at
+<a href='mailto:minmirestaurant@gmail.com' style='color:#e8622a'>minmirestaurant@gmail.com</a>.
+
+We look forward to serving you! 🔥";
+
+        $mail_result = sendMail(
+            $cust_email,
+            $cust_name,
+            '🍽️ Reservation Confirmation — Minmi Restaurent',
+            $email_body
+        );
+
+        if ($mail_result['success']) {
+            $msg .= ' 📧 Confirmation email sent to ' . htmlspecialchars($cust_email) . '.';
+        } else {
+            $msg      .= ' ⚠️ Saved but email failed: ' . htmlspecialchars($mail_result['error'] ?? 'Unknown error');
+            $msg_type  = 'warning';
+        }
+    }
 }
 
 if ($action === 'edit' && $item_id) {
     $pdo->prepare("UPDATE reservations SET customer_name=?, email=?, phone=?, date=?, time=?, status=?, notes=? WHERE id=?")
-        ->execute([trim($_POST['customer_name']), trim($_POST['email'] ?? ''), trim($_POST['phone'] ?? ''), $_POST['date'], $_POST['time'], $_POST['status'], trim($_POST['notes'] ?? ''), $item_id]);
+        ->execute([
+            trim($_POST['customer_name']),
+            trim($_POST['email']  ?? ''),
+            trim($_POST['phone']  ?? ''),
+            $_POST['date'],
+            $_POST['time'],
+            $_POST['status'],
+            trim($_POST['notes'] ?? ''),
+            $item_id,
+        ]);
     $msg = '✅ Reservation for "' . htmlspecialchars($_POST['customer_name']) . '" updated!';
 }
 
@@ -30,15 +93,84 @@ if ($action === 'delete' && $item_id) {
     $row->execute([$item_id]);
     $del_name = $row->fetchColumn() ?: $item_id;
     $pdo->prepare("DELETE FROM reservations WHERE id=?")->execute([$item_id]);
-    $msg = '🗑️ Reservation for "' . htmlspecialchars($del_name) . '" deleted.';
+    $msg      = '🗑️ Reservation for "' . htmlspecialchars($del_name) . '" deleted.';
     $msg_type = 'danger';
 }
 
 if ($action === 'status' && $item_id) {
-    $pdo->prepare("UPDATE reservations SET status=? WHERE id=?")->execute([$_POST['new_status'] ?? '', $item_id]);
-    $msg = '✅ Reservation marked as ' . htmlspecialchars($_POST['new_status'] ?? '') . '.';
+    $new_status = $_POST['new_status'] ?? '';
+    $pdo->prepare("UPDATE reservations SET status=? WHERE id=?")->execute([$new_status, $item_id]);
+    $msg = '✅ Reservation marked as ' . htmlspecialchars($new_status) . '.';
+
+    // ── Send status update email ──
+    $res_row = $pdo->prepare("SELECT * FROM reservations WHERE id=?");
+    $res_row->execute([$item_id]);
+    $updated_res = $res_row->fetch();
+
+    if ($updated_res && !empty($updated_res['email'])) {
+        $formatted_date = date('l, d F Y', strtotime($updated_res['date']));
+        $formatted_time = date('g:i A',    strtotime($updated_res['time']));
+
+        $status_colors = [
+            'Confirmed' => '#3ecf8e',
+            'Seated'    => '#e8622a',
+            'Completed' => '#3ecf8e',
+            'Cancelled' => '#e84242',
+            'Pending'   => '#f5c842',
+        ];
+        $status_color = $status_colors[$new_status] ?? '#888';
+
+        $status_messages = [
+            'Confirmed' => 'Great news! Your reservation has been <strong style="color:#3ecf8e">confirmed</strong>. We look forward to welcoming you!',
+            'Seated'    => 'You are now <strong style="color:#e8622a">seated</strong> at Minmi Restaurent. Enjoy your dining experience! 🍽️',
+            'Completed' => 'Thank you for dining with us! We hope you had a wonderful experience. See you again soon! 🌟',
+            'Cancelled' => 'Your reservation has been <strong style="color:#e84242">cancelled</strong>. If this was a mistake, please contact us to rebook.',
+            'Pending'   => 'Your reservation status has been updated to <strong>Pending</strong>. We will confirm your booking shortly.',
+        ];
+        $status_msg = $status_messages[$new_status] ?? "Your reservation status has been updated to <strong>{$new_status}</strong>.";
+
+        $update_body = "{$status_msg}
+
+<div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
+    <div style='font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e8622a;margin-bottom:12px'>📋 Your Reservation</div>
+    <table width='100%' cellpadding='6' cellspacing='0' style='font-size:.9rem;color:#333'>
+        <tr><td style='color:#888;width:40%'>Reservation ID</td><td><strong>{$item_id}</strong></td></tr>
+        <tr><td style='color:#888'>Date</td><td><strong>{$formatted_date}</strong></td></tr>
+        <tr><td style='color:#888'>Time</td><td><strong>{$formatted_time}</strong></td></tr>
+        <tr><td style='color:#888'>Status</td><td><span style='color:{$status_color};font-weight:700'>{$new_status}</span></td></tr>
+    </table>
+</div>
+
+For any questions, contact us at
+<a href='mailto:minmirestaurant@gmail.com' style='color:#e8622a'>minmirestaurant@gmail.com</a>.";
+
+        $subject_map = [
+            'Confirmed' => '✅ Reservation Confirmed — Minmi Restaurent',
+            'Cancelled' => '❌ Reservation Cancelled — Minmi Restaurent',
+            'Completed' => '🌟 Thank You for Dining — Minmi Restaurent',
+            'Seated'    => '🪑 You Are Now Seated — Minmi Restaurent',
+            'Pending'   => '⏳ Reservation Update — Minmi Restaurent',
+        ];
+        $subject = $subject_map[$new_status] ?? '🔄 Reservation Update — Minmi Restaurent';
+
+        $mail_result = sendMail(
+            $updated_res['email'],
+            $updated_res['customer_name'],
+            $subject,
+            $update_body
+        );
+
+        if ($mail_result['success']) {
+            $msg .= ' 📧 Status email sent to ' . htmlspecialchars($updated_res['email']) . '.';
+        } else {
+            $msg .= ' ⚠️ Status updated but email failed.';
+        }
+    }
 }
 
+// ════════════════════════════════════════
+//  FETCH DATA
+// ════════════════════════════════════════
 $reservations = $pdo->query("SELECT * FROM reservations ORDER BY date ASC, time ASC")->fetchAll();
 
 $cnt_pending   = count(array_filter($reservations, fn($r) => $r['status'] === 'Pending'));
@@ -47,9 +179,9 @@ $cnt_seated    = count(array_filter($reservations, fn($r) => $r['status'] === 'S
 $cnt_completed = count(array_filter($reservations, fn($r) => $r['status'] === 'Completed'));
 $cnt_cancelled = count(array_filter($reservations, fn($r) => $r['status'] === 'Cancelled'));
 
-$today     = date('Y-m-d');
-$today_res = array_filter($reservations, fn($r) => $r['date'] === $today);
-$res_json  = json_encode($reservations);
+$today      = date('Y-m-d');
+$today_res  = array_filter($reservations, fn($r) => $r['date'] === $today);
+$res_json   = json_encode($reservations);
 $page_title = 'Reservations';
 
 function resBadge(string $status): string {
@@ -75,6 +207,7 @@ require_once __DIR__ . '/../includes/header.php';
     <button class="btn btn-primary" onclick="openModal('addModal')">＋ New Reservation</button>
 </div>
 
+<!-- STATS -->
 <div class="stats-grid">
     <div class="stat-card yellow"><div class="stat-icon">⏳</div><div class="stat-label">Pending</div><div class="stat-value"><?= $cnt_pending ?></div><div class="stat-sub">Awaiting confirmation</div></div>
     <div class="stat-card blue"><div class="stat-icon">✔️</div><div class="stat-label">Confirmed</div><div class="stat-value"><?= $cnt_confirmed ?></div><div class="stat-sub">Ready to seat</div></div>
@@ -83,6 +216,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="stat-card red"><div class="stat-icon">❌</div><div class="stat-label">Cancelled</div><div class="stat-value"><?= $cnt_cancelled ?></div><div class="stat-sub">Total cancelled</div></div>
 </div>
 
+<!-- TODAY'S RESERVATIONS -->
 <?php if (!empty($today_res)): ?>
 <div class="card">
     <div class="card-header">
@@ -97,7 +231,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <?= resBadge($r['status']) ?>
             </div>
             <div style="color:var(--text-3);font-size:.78rem">
-                🕐 <?= htmlspecialchars(date('g:i A', strtotime($r['time']))) ?> &nbsp;·&nbsp; 📞 <?= htmlspecialchars($r['phone'] ?: '—') ?>
+                🕐 <?= date('g:i A', strtotime($r['time'])) ?> &nbsp;·&nbsp; 📞 <?= htmlspecialchars($r['phone'] ?: '—') ?>
             </div>
             <?php if ($r['notes']): ?>
             <div style="color:var(--text-2);font-size:.76rem;font-style:italic">"<?= htmlspecialchars(mb_strimwidth($r['notes'], 0, 50, '…')) ?>"</div>
@@ -108,6 +242,7 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
+<!-- ALL RESERVATIONS TABLE -->
 <div class="card">
     <div class="card-header">
         <div class="card-title">All Reservations</div>
@@ -162,10 +297,10 @@ require_once __DIR__ . '/../includes/header.php';
                 </td>
                 <td>
                     <div style="display:flex;gap:4px;justify-content:center">
-                        <button class="btn btn-ghost btn-sm btn-icon btn-view" data-id="<?= htmlspecialchars($r['id']) ?>" title="View">👁️</button>
+                        <button class="btn btn-ghost btn-sm btn-icon btn-view"   data-id="<?= htmlspecialchars($r['id']) ?>" title="View">👁️</button>
                         <button class="btn btn-ghost btn-sm btn-icon btn-status" data-id="<?= htmlspecialchars($r['id']) ?>" data-status="<?= htmlspecialchars($r['status']) ?>" title="Change Status">🔄</button>
-                        <button class="btn btn-ghost btn-sm btn-icon btn-edit" data-id="<?= htmlspecialchars($r['id']) ?>" title="Edit">✏️</button>
-                        <button class="btn btn-danger btn-sm btn-icon btn-delete" data-id="<?= htmlspecialchars($r['id']) ?>" data-name="<?= htmlspecialchars($r['customer_name']) ?>" title="Delete">🗑️</button>
+                        <button class="btn btn-ghost btn-sm btn-icon btn-edit"   data-id="<?= htmlspecialchars($r['id']) ?>" title="Edit">✏️</button>
+                        <button class="btn btn-danger  btn-sm btn-icon btn-delete" data-id="<?= htmlspecialchars($r['id']) ?>" data-name="<?= htmlspecialchars($r['customer_name']) ?>" title="Delete">🗑️</button>
                     </div>
                 </td>
             </tr>
@@ -176,26 +311,57 @@ require_once __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
-<!-- ADD MODAL -->
+<!-- ══ ADD MODAL ══ -->
 <div class="modal-backdrop" id="addModal">
     <div class="modal">
-        <div class="modal-header"><div class="modal-title">＋ New Reservation</div><button class="modal-close" onclick="closeModal('addModal')">✕</button></div>
+        <div class="modal-header">
+            <div class="modal-title">＋ New Reservation</div>
+            <button class="modal-close" onclick="closeModal('addModal')">✕</button>
+        </div>
         <div class="modal-body">
             <form method="POST" action="reservations.php">
                 <input type="hidden" name="action" value="add">
                 <div class="form-grid">
-                    <div class="form-group span2"><label class="form-label">Customer Name *</label><input class="form-input" type="text" name="customer_name" placeholder="e.g. John Smith" required></div>
-                    <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" name="email" placeholder="john@email.com"></div>
-                    <div class="form-group"><label class="form-label">Phone</label><input class="form-input" type="tel" name="phone" placeholder="+94 77 000 0000"></div>
-                    <div class="form-group"><label class="form-label">Date *</label><input class="form-input" type="date" name="date" value="<?= date('Y-m-d') ?>" required></div>
-                    <div class="form-group"><label class="form-label">Time *</label><input class="form-input" type="time" name="time" value="19:00" required></div>
-                    <div class="form-group span2"><label class="form-label">Status</label>
+                    <div class="form-group span2">
+                        <label class="form-label">Customer Name *</label>
+                        <input class="form-input" type="text" name="customer_name" placeholder="e.g. John Smith" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            Email
+                            <span style="color:#3ecf8e;font-size:.68rem;font-weight:400;text-transform:none;letter-spacing:0"> — confirmation will be sent</span>
+                        </label>
+                        <input class="form-input" type="email" name="email" placeholder="customer@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Phone</label>
+                        <input class="form-input" type="tel" name="phone" placeholder="+94 77 000 0000">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Date *</label>
+                        <input class="form-input" type="date" name="date" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Time *</label>
+                        <input class="form-input" type="time" name="time" value="19:00" required>
+                    </div>
+                    <div class="form-group span2">
+                        <label class="form-label">Status</label>
                         <select class="form-input" name="status">
-                            <option value="Pending">⏳ Pending</option><option value="Confirmed">✔️ Confirmed</option>
-                            <option value="Seated">🪑 Seated</option><option value="Completed">✅ Completed</option><option value="Cancelled">❌ Cancelled</option>
+                            <option value="Pending">⏳ Pending</option>
+                            <option value="Confirmed">✔️ Confirmed</option>
+                            <option value="Seated">🪑 Seated</option>
+                            <option value="Completed">✅ Completed</option>
+                            <option value="Cancelled">❌ Cancelled</option>
                         </select>
                     </div>
-                    <div class="form-group span2"><label class="form-label">Notes</label><textarea class="form-input" name="notes" rows="3" placeholder="e.g. Window table preferred, birthday celebration…"></textarea></div>
+                    <div class="form-group span2">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-input" name="notes" rows="3" placeholder="e.g. Window table preferred, birthday celebration…"></textarea>
+                    </div>
+                </div>
+                <div style="background:rgba(62,207,142,.07);border:1px solid rgba(62,207,142,.25);border-radius:var(--radius);padding:10px 14px;margin-top:4px;font-size:.78rem;color:#3ecf8e">
+                    📧 A booking confirmation email will automatically be sent to the customer if an email is provided.
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-ghost" onclick="closeModal('addModal')">Cancel</button>
@@ -206,27 +372,52 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- EDIT MODAL -->
+<!-- ══ EDIT MODAL ══ -->
 <div class="modal-backdrop" id="editModal">
     <div class="modal">
-        <div class="modal-header"><div class="modal-title">✏️ Edit Reservation</div><button class="modal-close" onclick="closeModal('editModal')">✕</button></div>
+        <div class="modal-header">
+            <div class="modal-title">✏️ Edit Reservation</div>
+            <button class="modal-close" onclick="closeModal('editModal')">✕</button>
+        </div>
         <div class="modal-body">
             <form method="POST" action="reservations.php">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="item_id" id="edit_id">
                 <div class="form-grid">
-                    <div class="form-group span2"><label class="form-label">Customer Name *</label><input class="form-input" type="text" name="customer_name" id="edit_name" required></div>
-                    <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" name="email" id="edit_email"></div>
-                    <div class="form-group"><label class="form-label">Phone</label><input class="form-input" type="tel" name="phone" id="edit_phone"></div>
-                    <div class="form-group"><label class="form-label">Date *</label><input class="form-input" type="date" name="date" id="edit_date" required></div>
-                    <div class="form-group"><label class="form-label">Time *</label><input class="form-input" type="time" name="time" id="edit_time" required></div>
-                    <div class="form-group span2"><label class="form-label">Status</label>
+                    <div class="form-group span2">
+                        <label class="form-label">Customer Name *</label>
+                        <input class="form-input" type="text" name="customer_name" id="edit_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input class="form-input" type="email" name="email" id="edit_email">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Phone</label>
+                        <input class="form-input" type="tel" name="phone" id="edit_phone">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Date *</label>
+                        <input class="form-input" type="date" name="date" id="edit_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Time *</label>
+                        <input class="form-input" type="time" name="time" id="edit_time" required>
+                    </div>
+                    <div class="form-group span2">
+                        <label class="form-label">Status</label>
                         <select class="form-input" name="status" id="edit_status">
-                            <option value="Pending">⏳ Pending</option><option value="Confirmed">✔️ Confirmed</option>
-                            <option value="Seated">🪑 Seated</option><option value="Completed">✅ Completed</option><option value="Cancelled">❌ Cancelled</option>
+                            <option value="Pending">⏳ Pending</option>
+                            <option value="Confirmed">✔️ Confirmed</option>
+                            <option value="Seated">🪑 Seated</option>
+                            <option value="Completed">✅ Completed</option>
+                            <option value="Cancelled">❌ Cancelled</option>
                         </select>
                     </div>
-                    <div class="form-group span2"><label class="form-label">Notes</label><textarea class="form-input" name="notes" id="edit_notes" rows="3"></textarea></div>
+                    <div class="form-group span2">
+                        <label class="form-label">Notes</label>
+                        <textarea class="form-input" name="notes" id="edit_notes" rows="3"></textarea>
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-ghost" onclick="closeModal('editModal')">Cancel</button>
@@ -237,27 +428,46 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- VIEW MODAL -->
+<!-- ══ VIEW MODAL ══ -->
 <div class="modal-backdrop" id="viewModal">
     <div class="modal">
-        <div class="modal-header"><div class="modal-title">👁️ Reservation Details</div><button class="modal-close" onclick="closeModal('viewModal')">✕</button></div>
+        <div class="modal-header">
+            <div class="modal-title">👁️ Reservation Details</div>
+            <button class="modal-close" onclick="closeModal('viewModal')">✕</button>
+        </div>
         <div class="modal-body" id="viewContent"></div>
     </div>
 </div>
 
-<!-- STATUS MODAL -->
+<!-- ══ STATUS MODAL ══ -->
 <div class="modal-backdrop" id="statusModal">
     <div class="modal" style="max-width:420px">
-        <div class="modal-header"><div class="modal-title">🔄 Change Status</div><button class="modal-close" onclick="closeModal('statusModal')">✕</button></div>
+        <div class="modal-header">
+            <div class="modal-title">🔄 Change Status</div>
+            <button class="modal-close" onclick="closeModal('statusModal')">✕</button>
+        </div>
         <div class="modal-body">
             <p style="color:var(--text-2);font-size:.85rem;margin-bottom:16px">Reservation: <strong id="status_res_id"></strong></p>
             <form method="POST" action="reservations.php">
                 <input type="hidden" name="action" value="status">
                 <input type="hidden" name="item_id" id="status_id">
-                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
-                    <?php foreach([['Pending','⏳','badge-yellow'],['Confirmed','✔️','badge-blue'],['Seated','🪑','badge-orange'],['Completed','✅','badge-green'],['Cancelled','❌','badge-red']] as [$st,$ic,$bc]): ?>
-                    <label class="status-option"><input type="radio" name="new_status" value="<?= $st ?>"><span style="font-size:1.1rem"><?= $ic ?></span><span class="badge <?= $bc ?>"><?= $st ?></span></label>
+                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+                    <?php foreach([
+                        ['Pending',   '⏳', 'badge-yellow'],
+                        ['Confirmed', '✔️', 'badge-blue'],
+                        ['Seated',    '🪑', 'badge-orange'],
+                        ['Completed', '✅', 'badge-green'],
+                        ['Cancelled', '❌', 'badge-red'],
+                    ] as [$st, $ic, $bc]): ?>
+                    <label class="status-option">
+                        <input type="radio" name="new_status" value="<?= $st ?>">
+                        <span style="font-size:1.1rem"><?= $ic ?></span>
+                        <span class="badge <?= $bc ?>"><?= $st ?></span>
+                    </label>
                     <?php endforeach; ?>
+                </div>
+                <div style="background:rgba(62,207,142,.07);border:1px solid rgba(62,207,142,.25);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:.77rem;color:#3ecf8e">
+                    📧 A status update email will automatically be sent to the customer.
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-ghost" onclick="closeModal('statusModal')">Cancel</button>
@@ -268,7 +478,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- DELETE MODAL -->
+<!-- ══ DELETE MODAL ══ -->
 <div class="modal-backdrop" id="deleteModal">
     <div class="modal" style="max-width:420px">
         <div class="modal-body" style="text-align:center;padding:32px 28px 24px">
@@ -287,12 +497,11 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="toast" id="toast"></div>
-
 <style>
 .flash-msg{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-radius:var(--radius);margin-bottom:20px;font-size:.85rem;font-weight:600}
 .flash-success{background:rgba(62,207,142,.1);color:#3ecf8e;border:1px solid #3ecf8e}
 .flash-danger{background:rgba(232,66,66,.1);color:#e84242;border:1px solid #e84242}
+.flash-warning{background:rgba(245,200,66,.1);color:#f5c842;border:1px solid #f5c842}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .modal-backdrop.open{display:flex}
 .modal{background:var(--bg-2);border:1px solid var(--border-l);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;animation:modalIn .25s ease}
@@ -325,6 +534,7 @@ const TODAY = '<?= $today ?>';
 
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
 document.querySelectorAll('.modal-backdrop').forEach(bd =>
     bd.addEventListener('click', e => { if (e.target === bd) bd.classList.remove('open'); })
 );
@@ -350,9 +560,12 @@ document.addEventListener('click', function(e) {
                 <span style="padding:5px 14px;border-radius:20px;font-size:.78rem;font-weight:700;background:rgba(255,255,255,.06);color:${statusColors[r.status]||'#aaa'}">${r.status}</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-                ${vRow('📅','Date',dateLabel)}${vRow('🕐','Time',r.time)}${vRow('📧','Email',r.email||'—')}${vRow('📞','Phone',r.phone||'—')}
+                ${vRow('📅','Date',dateLabel)}
+                ${vRow('🕐','Time',r.time)}
+                ${vRow('📧','Email',r.email||'—')}
+                ${vRow('📞','Phone',r.phone||'—')}
             </div>
-            ${r.notes?`<div style="background:var(--bg-3);border-radius:var(--radius);padding:14px;margin-bottom:16px"><div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:6px">📝 Notes</div><div style="font-size:.85rem;line-height:1.7">${r.notes}</div></div>`:''}
+            ${r.notes ? `<div style="background:var(--bg-3);border-radius:var(--radius);padding:14px;margin-bottom:16px"><div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:6px">📝 Notes</div><div style="font-size:.85rem;line-height:1.7">${r.notes}</div></div>` : ''}
             <div style="display:flex;gap:8px">
                 <button class="btn btn-ghost btn-sm" style="flex:1" onclick="closeModal('viewModal');setTimeout(()=>document.querySelector('.btn-edit[data-id=\\'${r.id}\\']').click(),100)">✏️ Edit</button>
                 <button class="btn btn-ghost btn-sm" style="flex:1" onclick="closeModal('viewModal');setTimeout(()=>document.querySelector('.btn-status[data-id=\\'${r.id}\\']').click(),100)">🔄 Change Status</button>
@@ -402,7 +615,9 @@ function filterRes() {
         if (df === 'today')    dateMatch = rowDate === TODAY;
         if (df === 'upcoming') dateMatch = rowDate > TODAY;
         if (df === 'past')     dateMatch = rowDate < TODAY;
-        const show = (!q || row.dataset.name.includes(q) || row.dataset.email.includes(q) || row.dataset.phone.includes(q)) && (!st || row.dataset.status === st) && dateMatch;
+        const show = (!q || row.dataset.name.includes(q) || row.dataset.email.includes(q) || row.dataset.phone.includes(q))
+                  && (!st || row.dataset.status === st)
+                  && dateMatch;
         row.style.display = show ? '' : 'none';
         if (show) n++;
     });
@@ -410,7 +625,7 @@ function filterRes() {
 }
 
 const flash = document.getElementById('flashMsg');
-if (flash) setTimeout(() => flash.style.opacity = '0', 4000);
+if (flash) setTimeout(() => { flash.style.transition = 'opacity .5s'; flash.style.opacity = '0'; }, 5000);
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
