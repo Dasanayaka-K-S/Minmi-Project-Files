@@ -7,9 +7,6 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 
-// ══════════════════════════════════════════════════════════════
-//  FETCH ALL DATA FROM DB
-// ══════════════════════════════════════════════════════════════
 $orders           = $pdo->query("SELECT * FROM orders")->fetchAll();
 $delivered_orders = array_values(array_filter($orders, fn($o) => $o['status'] === 'Delivered'));
 $cancelled        = array_values(array_filter($orders, fn($o) => $o['status'] === 'Cancelled'));
@@ -70,6 +67,79 @@ $top_cust_spent = json_encode(array_column($top_customers, 'total_spent'));
 $generated_at   = date('F j, Y  g:i A');
 $page_title     = 'Reports';
 
+// ════════════════════════════════════════
+//  AI ANALYSIS — computed from DB data
+// ════════════════════════════════════════
+
+// Monthly revenue for trend
+$monthly_rev = [];
+for ($i = 5; $i >= 0; $i--) {
+    $key = date('Y-m', strtotime("-{$i} months"));
+    $monthly_rev[$key] = 0;
+    foreach ($delivered_orders as $o) {
+        if (substr($o['date'], 0, 7) === $key)
+            $monthly_rev[$key] += $o['total'];
+    }
+}
+$rev_values = array_values($monthly_rev);
+$n = count($rev_values);
+
+// Forecast
+$forecast = 0;
+if ($n >= 2) {
+    $weights   = [1,1,2,2,3,3];
+    $ws = $wv = 0;
+    foreach ($rev_values as $i => $v) { $w=$weights[$i]??1; $ws+=$w; $wv+=$v*$w; }
+    $wavg   = $ws > 0 ? $wv/$ws : 0;
+    $last   = $rev_values[$n-1] ?? 0;
+    $prev   = $rev_values[$n-2] ?? 0;
+    $growth = $prev > 0 ? ($last-$prev)/$prev : 0;
+    $forecast = round($wavg * (1 + $growth));
+}
+$forecast_dir = $forecast > ($rev_values[$n-1] ?? 0) ? 'up' : 'down';
+
+// Best seller
+arsort($item_counts);
+$top_item     = key($item_counts) ?? 'N/A';
+$top_item_cnt = current($item_counts) ?: 0;
+
+// Second best
+$item_keys = array_keys($item_counts);
+$second_item = isset($item_keys[1]) ? $item_keys[1] : null;
+
+// Anomaly: sudden drop in last month
+$last_month_rev  = $rev_values[$n-1] ?? 0;
+$prev_month_rev  = $rev_values[$n-2] ?? 0;
+$revenue_drop    = $prev_month_rev > 0 && $last_month_rev < ($prev_month_rev * 0.7);
+$revenue_change_pct = $prev_month_rev > 0
+    ? round((($last_month_rev - $prev_month_rev) / $prev_month_rev) * 100, 1)
+    : 0;
+
+// Payment preference
+$dominant_payment = $card_orders >= $cash_orders ? 'Card' : 'Cash';
+$dominant_pct     = count($orders) > 0
+    ? round((max($card_orders, $cash_orders) / count($orders)) * 100, 1) : 0;
+
+// Customer health
+$repeat_customers = count(array_filter($customers, fn($c) => ($c['orders_count'] ?? 0) > 1));
+$repeat_rate      = count($customers) > 0
+    ? round(($repeat_customers / count($customers)) * 100, 1) : 0;
+
+// AI recommendations
+$ai_recommendations = [];
+if ($cancel_rate > 20)
+    $ai_recommendations[] = ['🚨', 'High cancellation rate ('.$cancel_rate.'%). Review kitchen speed and stock availability.', 'red'];
+if ($low_stock_count > 0)
+    $ai_recommendations[] = ['📦', $low_stock_count.' inventory items below minimum. Reorder before stock runs out.', 'orange'];
+if ($repeat_rate < 30)
+    $ai_recommendations[] = ['👥', 'Only '.$repeat_rate.'% repeat customer rate. Launch a loyalty rewards program.', 'blue'];
+if ($forecast_dir === 'up')
+    $ai_recommendations[] = ['📈', 'Revenue trending upward. Consider expanding menu or increasing staff during peak hours.', 'green'];
+if ($top_item !== 'N/A')
+    $ai_recommendations[] = ['🍽️', '"'.$top_item.'" is your top seller ('.$top_item_cnt.' orders). Always keep it in stock.', 'orange'];
+if ($dominant_pct > 60)
+    $ai_recommendations[] = ['💳', $dominant_pct.'% of customers pay by '.$dominant_payment.'. Ensure this method is always available.', 'blue'];
+
 $page_scripts = <<<JS
 buildDoughnutChart('orderStatusChart',{$status_labels},{$status_data},['#3ecf8e','#f5c842','#4e9cf7','#e84242']);
 buildDoughnutChart('paymentChart',['Card','Cash','Other'],[{$card_orders},{$cash_orders},{$other_orders}],['#4e9cf7','#3ecf8e','#a855f7']);
@@ -79,9 +149,7 @@ JS;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<!-- ══════════════════════════════════════
-     PAGE HEADER
-     ══════════════════════════════════════ -->
+<!-- PAGE HEADER -->
 <div class="page-header no-print">
     <div>
         <h1 style="font-family:'DM Serif Display',serif;font-size:1.9rem;font-weight:400;letter-spacing:-.03em">Reports</h1>
@@ -90,7 +158,7 @@ require_once __DIR__ . '/../includes/header.php';
     <button class="btn btn-primary" onclick="exportPDF()">🖨️ Export PDF</button>
 </div>
 
-<!-- PDF Header (only shows when printing) -->
+<!-- PDF Header (print only) -->
 <div class="pdf-header print-only">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;
                 border-bottom:2px solid #e8622a;padding-bottom:16px;margin-bottom:24px">
@@ -146,6 +214,109 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- ══════════════════════════════════════
+     SECTION AI — AI ANALYSIS
+     ══════════════════════════════════════ -->
+<div class="pdf-section-title print-only">🤖 AI Business Analysis</div>
+<div class="report-section card" id="sec-ai">
+    <div class="card-header">
+        <div class="card-title">🤖 AI Business Analysis</div>
+        <div style="display:flex;gap:8px">
+            <span class="badge badge-purple">Powered by AI</span>
+            <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-ai','AI Business Analysis')">🖨️ Print</button>
+        </div>
+    </div>
+
+    <!-- Calc box: print only -->
+    <div class="calc-box print-only">
+        <div class="calc-title">How AI Insights are Generated</div>
+        <div class="calc-steps">
+            <div class="calc-step"><span class="calc-num">1</span><span>Revenue forecast uses a weighted 6-month trend with growth rate calculation.</span></div>
+            <div class="calc-step"><span class="calc-num">2</span><span>Recommendations are generated by analyzing cancellation rate, stock levels, customer retention, and payment patterns.</span></div>
+            <div class="calc-step"><span class="calc-num">3</span><span>All insights are derived in real-time from the live database.</span></div>
+        </div>
+    </div>
+
+    <!-- AI Metric Cards -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+
+        <!-- Revenue Forecast -->
+        <div class="ai-metric <?= $forecast_dir === 'up' ? 'ai-metric-green' : 'ai-metric-red' ?>">
+            <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">
+                <?= $forecast_dir === 'up' ? '📈' : '📉' ?> Revenue Forecast
+            </div>
+            <div style="font-size:1.3rem;font-weight:700;margin-bottom:4px">Rs. <?= number_format($forecast, 0) ?></div>
+            <div style="font-size:.76rem;opacity:.8">
+                Predicted next month · 
+                <?php if ($revenue_change_pct != 0): ?>
+                    Last month <?= $revenue_change_pct > 0 ? '+' : '' ?><?= $revenue_change_pct ?>% vs prior month
+                <?php else: ?>
+                    Based on 6-month weighted average
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Top Seller -->
+        <div class="ai-metric ai-metric-orange">
+            <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">🏆 Top Selling Item</div>
+            <div style="font-size:1.1rem;font-weight:700;margin-bottom:4px"><?= htmlspecialchars($top_item) ?></div>
+            <div style="font-size:.76rem;opacity:.8">
+                <?= $top_item_cnt ?> orders
+                <?php if ($second_item): ?> · Runner up: <?= htmlspecialchars($second_item) ?><?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Customer Retention -->
+        <div class="ai-metric <?= $repeat_rate >= 30 ? 'ai-metric-green' : 'ai-metric-blue' ?>">
+            <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">👥 Customer Retention</div>
+            <div style="font-size:1.3rem;font-weight:700;margin-bottom:4px"><?= $repeat_rate ?>%</div>
+            <div style="font-size:.76rem;opacity:.8">
+                <?= $repeat_customers ?> of <?= count($customers) ?> customers returned · <?= $vip_count ?> VIP
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Revenue Anomaly Alert -->
+    <?php if ($revenue_drop): ?>
+    <div style="background:rgba(232,66,66,.08);border:1px solid rgba(232,66,66,.3);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:1.4rem">⚠️</span>
+        <div>
+            <div style="font-size:.82rem;font-weight:700;color:var(--red,#e84242)">Revenue Anomaly Detected</div>
+            <div style="font-size:.78rem;color:var(--text-2);margin-top:2px">
+                Last month revenue dropped <?= abs($revenue_change_pct) ?>% compared to the previous month.
+                Consider reviewing order fulfillment, promotions, or seasonal factors.
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- AI Recommendations -->
+    <?php if (!empty($ai_recommendations)): ?>
+    <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin-bottom:10px">
+        💡 AI Recommendations
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+        <?php
+        $rec_colors = [
+            'red'    => ['bg'=>'rgba(232,66,66,.07)',   'border'=>'rgba(232,66,66,.25)',   'dot'=>'#e84242'],
+            'orange' => ['bg'=>'rgba(232,98,42,.07)',   'border'=>'rgba(232,98,42,.25)',   'dot'=>'#e8622a'],
+            'blue'   => ['bg'=>'rgba(78,156,247,.07)',  'border'=>'rgba(78,156,247,.25)',  'dot'=>'#4e9cf7'],
+            'green'  => ['bg'=>'rgba(62,207,142,.07)',  'border'=>'rgba(62,207,142,.25)',  'dot'=>'#3ecf8e'],
+        ];
+        foreach ($ai_recommendations as [$icon, $text, $color]):
+            $c = $rec_colors[$color] ?? $rec_colors['blue'];
+        ?>
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;
+                    background:<?= $c['bg'] ?>;border:1px solid <?= $c['border'] ?>;border-radius:var(--radius)">
+            <span style="font-size:1rem;flex-shrink:0;margin-top:1px"><?= $icon ?></span>
+            <span style="font-size:.82rem;color:var(--text-2);line-height:1.5"><?= htmlspecialchars($text) ?></span>
+        </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+</div>
+
+<!-- ══════════════════════════════════════
      SECTION 2 — ORDER STATUS BREAKDOWN
      ══════════════════════════════════════ -->
 <div class="pdf-section-title print-only">📦 Order & Payment Breakdown</div>
@@ -154,9 +325,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card-title">📦 Order Status Breakdown</div>
         <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-orders','Order Status Breakdown')">🖨️ Print</button>
     </div>
-
-    <!-- How it's calculated -->
-    <div class="calc-box">
+    <div class="calc-box print-only">
         <div class="calc-title">How Order Statuses Work</div>
         <div class="calc-steps">
             <div class="calc-step"><span class="calc-num">1</span><span>Every order has one of 4 statuses: <strong>Delivered, Pending, Processing, Cancelled</strong>.</span></div>
@@ -164,7 +333,6 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="calc-step"><span class="calc-num">3</span><span>Revenue is only counted from <strong>Delivered</strong> orders.</span></div>
         </div>
     </div>
-
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
         <div class="chart-box print-chart"><canvas id="orderStatusChart"></canvas></div>
         <div style="display:flex;flex-direction:column;gap:8px;justify-content:center">
@@ -196,7 +364,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card-title">💳 Payment Methods</div>
         <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-payment','Payment Methods')">🖨️ Print</button>
     </div>
-    <div class="calc-box">
+    <div class="calc-box print-only">
         <div class="calc-title">How Payment Split is Calculated</div>
         <div class="calc-steps">
             <div class="calc-step"><span class="calc-num">1</span><span>Each order's <strong>payment</strong> column is checked (case-insensitive).</span></div>
@@ -236,7 +404,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card-title">🍽️ Top Selling Items</div>
         <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-sellers','Top Selling Items')">🖨️ Print</button>
     </div>
-    <div class="calc-box">
+    <div class="calc-box print-only">
         <div class="calc-title">How Top Items are Calculated</div>
         <div class="calc-steps">
             <div class="calc-step"><span class="calc-num">1</span><span>Each order's <strong>items</strong> field is parsed (supports plain text and JSON).</span></div>
@@ -247,8 +415,7 @@ require_once __DIR__ . '/../includes/header.php';
     <?php if (empty($best_sellers)): ?>
     <div style="text-align:center;padding:24px;color:var(--text-3);font-size:.84rem">No item data found in orders yet.</div>
     <?php else:
-        $max_sales = max($best_sellers);
-        $rank = 1;
+        $max_sales = max($best_sellers); $rank = 1;
         foreach ($best_sellers as $name => $count):
             $pct = round(($count / $max_sales) * 100);
     ?>
@@ -271,7 +438,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="card-title">👥 Top 5 Customers by Spend</div>
         <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-customers','Top Customers by Spend')">🖨️ Print</button>
     </div>
-    <div class="calc-box">
+    <div class="calc-box print-only">
         <div class="calc-title">How Top Customers are Ranked</div>
         <div class="calc-steps">
             <div class="calc-step"><span class="calc-num">1</span><span>All customers sorted by <strong>total_spent</strong> column (descending).</span></div>
@@ -296,7 +463,7 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- ══════════════════════════════════════
-     SECTION 6 — FINANCIAL SUMMARY TABLE
+     SECTION 6 — FINANCIAL SUMMARY
      ══════════════════════════════════════ -->
 <div class="pdf-section-title print-only">💰 Financial Summary</div>
 <div class="report-section card" id="sec-financial">
@@ -307,7 +474,7 @@ require_once __DIR__ . '/../includes/header.php';
             <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-financial','Financial Summary')">🖨️ Print</button>
         </div>
     </div>
-    <div class="calc-box">
+    <div class="calc-box print-only">
         <div class="calc-title">Data Sources</div>
         <div class="calc-steps">
             <div class="calc-step"><span class="calc-num">1</span><span>Order data from <code>orders</code> table — counts and totals.</span></div>
@@ -317,29 +484,29 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <?php
     $metrics = [
-        ['📦 Total Orders',             count($orders),                              ''],
-        ['✅ Delivered Orders',          count($delivered_orders),                   'var(--green,#3ecf8e)'],
-        ['❌ Cancelled Orders',          count($cancelled),                           'var(--red,#e84242)'],
-        ['⏳ Pending Orders',            count($pending),                             'var(--yellow,#f5c842)'],
-        ['🔄 Processing Orders',         count($processing),                          'var(--blue,#4e9cf7)'],
-        ['💰 Total Revenue (Delivered)', 'Rs. ' . number_format($total_rev, 2),       'var(--accent-l,#e8622a)'],
-        ['📊 Average Order Value',       'Rs. ' . number_format($avg_order, 2),       ''],
-        ['🏆 Highest Single Order',      'Rs. ' . number_format($top_order, 2),       ''],
-        ['🚫 Cancellation Rate',         $cancel_rate . '%',                          'var(--yellow,#f5c842)'],
-        ['💳 Card Payments',             $card_orders . ' orders',                    'var(--blue,#4e9cf7)'],
-        ['💵 Cash Payments',             $cash_orders . ' orders',                    'var(--green,#3ecf8e)'],
-        ['👥 Total Customers',           count($customers),                           ''],
-        ['⭐ VIP Customers',             $vip_count,                                  'var(--accent-l,#e8622a)'],
-        ['🆕 New Customers',             $new_cust,                                   'var(--blue,#4e9cf7)'],
-        ['💸 Total Customer Spend',      'Rs. ' . number_format($total_cust_revenue, 2), 'var(--accent-l,#e8622a)'],
-        ['🍽️ Active Menu Items',         $active_menu_count,                          ''],
-        ['👨‍🍳 Active Staff',              $active_staff,                               ''],
-        ['⚠️ Low Stock Items',           $low_stock_count,                            'var(--red,#e84242)'],
+        ['📦 Total Orders',             count($orders),                                  ''],
+        ['✅ Delivered Orders',          count($delivered_orders),                        'var(--green,#3ecf8e)'],
+        ['❌ Cancelled Orders',          count($cancelled),                               'var(--red,#e84242)'],
+        ['⏳ Pending Orders',            count($pending),                                 'var(--yellow,#f5c842)'],
+        ['🔄 Processing Orders',         count($processing),                              'var(--blue,#4e9cf7)'],
+        ['💰 Total Revenue (Delivered)', 'Rs. ' . number_format($total_rev, 2),           'var(--accent-l,#e8622a)'],
+        ['📊 Average Order Value',       'Rs. ' . number_format($avg_order, 2),           ''],
+        ['🏆 Highest Single Order',      'Rs. ' . number_format($top_order, 2),           ''],
+        ['🚫 Cancellation Rate',         $cancel_rate . '%',                              'var(--yellow,#f5c842)'],
+        ['💳 Card Payments',             $card_orders . ' orders',                        'var(--blue,#4e9cf7)'],
+        ['💵 Cash Payments',             $cash_orders . ' orders',                        'var(--green,#3ecf8e)'],
+        ['👥 Total Customers',           count($customers),                               ''],
+        ['⭐ VIP Customers',             $vip_count,                                      'var(--accent-l,#e8622a)'],
+        ['🆕 New Customers',             $new_cust,                                       'var(--blue,#4e9cf7)'],
+        ['💸 Total Customer Spend',      'Rs. ' . number_format($total_cust_revenue, 2),  'var(--accent-l,#e8622a)'],
+        ['🔁 Repeat Customer Rate',      $repeat_rate . '%',                              'var(--green,#3ecf8e)'],
+        ['🍽️ Active Menu Items',         $active_menu_count,                              ''],
+        ['👨‍🍳 Active Staff',              $active_staff,                                   ''],
+        ['⚠️ Low Stock Items',           $low_stock_count,                                'var(--red,#e84242)'],
     ];
     foreach ($metrics as [$label, $value, $color]):
     ?>
-    <div style="display:flex;justify-content:space-between;align-items:center;
-         padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem">
         <span style="color:var(--text-2)"><?= $label ?></span>
         <strong style="<?= $color ? 'color:'.$color : '' ?>"><?= $value ?></strong>
     </div>
@@ -361,7 +528,7 @@ require_once __DIR__ . '/../includes/header.php';
             <button class="btn btn-ghost btn-sm no-print" onclick="printSection('sec-stock','Low Stock Alert')">🖨️ Print</button>
         </div>
     </div>
-    <div class="calc-box">
+    <div class="calc-box print-only">
         <div class="calc-title">How Low Stock is Detected</div>
         <div class="calc-steps">
             <div class="calc-step"><span class="calc-num">1</span><span>Each inventory item has a <strong>min_stock</strong> threshold set by the admin.</span></div>
@@ -371,9 +538,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <div class="table-wrap" style="margin-top:12px">
         <table>
-            <thead>
-                <tr><th>Item</th><th>Category</th><th>Current Stock</th><th>Min Stock</th><th>Status</th></tr>
-            </thead>
+            <thead><tr><th>Item</th><th>Category</th><th>Current Stock</th><th>Min Stock</th><th>Status</th></tr></thead>
             <tbody>
             <?php foreach ($low_items as $item): ?>
             <tr>
@@ -390,6 +555,53 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
+<!-- ══════════════════════════════════════
+     SECTION 8 — POWER BI DASHBOARD
+     ══════════════════════════════════════ -->
+<div class="report-section card no-print" id="sec-powerbi">
+    <div class="card-header">
+        <div class="card-title">📊 Power BI Dashboard</div>
+        <span class="badge badge-blue">Business Intelligence</span>
+    </div>
+    <?php
+    // Check if Power BI URL is saved in settings
+    $pbi_url = '';
+    try {
+        $pbi_row = $pdo->query("SELECT value FROM settings WHERE `key`='powerbi_url'")->fetch();
+        $pbi_url = $pbi_row['value'] ?? '';
+    } catch (Exception $e) { $pbi_url = ''; }
+    ?>
+    <?php if ($pbi_url): ?>
+    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:var(--radius);margin-top:12px">
+        <iframe src="<?= htmlspecialchars($pbi_url) ?>"
+                style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;border-radius:var(--radius)"
+                allowfullscreen></iframe>
+    </div>
+    <p style="font-size:.75rem;color:var(--text-3);margin-top:8px;text-align:center">
+        Live Power BI report embedded above. <a href="<?= htmlspecialchars($pbi_url) ?>" target="_blank" style="color:var(--accent)">Open in full screen →</a>
+    </p>
+    <?php else: ?>
+    <div style="background:var(--bg-3);border:2px dashed var(--border);border-radius:var(--radius);padding:32px 24px;text-align:center;margin-top:12px">
+        <div style="font-size:2.5rem;margin-bottom:12px">📊</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;margin-bottom:8px">Connect Your Power BI Report</div>
+        <p style="color:var(--text-3);font-size:.83rem;line-height:1.6;max-width:480px;margin:0 auto 20px">
+            Embed your Power BI dashboard here for advanced business intelligence visualization.
+            Paste your Power BI publish URL in Settings to activate this section.
+        </p>
+        <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;text-align:left;max-width:520px;margin:0 auto 20px;font-size:.78rem">
+            <div style="font-weight:700;color:var(--text-2);margin-bottom:8px">How to embed Power BI:</div>
+            <div style="color:var(--text-3);line-height:1.8">
+                1. Open Power BI → your report → <strong>File → Embed report → Publish to web</strong><br>
+                2. Copy the <strong>embed URL</strong> (starts with https://app.powerbi.com/...)<br>
+                3. Go to <a href="settings.php" style="color:var(--accent)">Settings</a> → add key <code style="background:var(--bg-3);padding:1px 5px;border-radius:3px">powerbi_url</code> with that URL<br>
+                4. Come back here and the report will appear automatically.
+            </div>
+        </div>
+        <a href="settings.php" class="btn btn-primary">⚙️ Go to Settings</a>
+    </div>
+    <?php endif; ?>
+</div>
+
 <!-- PDF Footer -->
 <div class="print-only" style="margin-top:40px;padding-top:16px;border-top:1px solid #ddd;
      display:flex;justify-content:space-between;font-size:.75rem;color:#999">
@@ -397,135 +609,16 @@ require_once __DIR__ . '/../includes/header.php';
     <span>Generated: <?= $generated_at ?></span>
 </div>
 
-<?php endif; // end empty check ?>
+<?php endif; ?>
 
-<!-- Hidden print iframe -->
 <iframe id="printFrame" style="display:none"></iframe>
 
-<!-- ══════════════════════════════════════
-     STYLES
-     ══════════════════════════════════════ -->
-<style>
-/* Calculation box */
-.calc-box{background:var(--bg-3);border-left:3px solid var(--accent);border-radius:0 var(--radius) var(--radius) 0;padding:14px 16px;margin:12px 0}
-.calc-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:10px}
-.calc-steps{display:flex;flex-direction:column;gap:8px}
-.calc-step{display:flex;align-items:flex-start;gap:10px;font-size:.82rem;color:var(--text-2);line-height:1.5}
-.calc-num{background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;margin-top:1px}
-.calc-step code{background:var(--bg-2);padding:1px 6px;border-radius:4px;font-size:.78rem;color:var(--accent-l)}
-.report-section{margin-bottom:16px}
+<link rel="stylesheet" href="../assets/css/reports.css">
 
-/* Print-only elements hidden on screen */
-.print-only{display:none}
-.pdf-section-title{display:none}
-
-/* ── PRINT / PDF STYLES ── */
-@media print {
-    .sidebar,.topbar,.sidebar-overlay,.no-print,.btn,button{display:none !important}
-    .print-only{display:block !important}
-    .pdf-section-title{display:block !important;font-size:1rem;font-weight:700;color:#e8622a;margin:24px 0 10px;padding-bottom:6px;border-bottom:1px solid #e8622a}
-    body,html{background:#fff !important;color:#111 !important}
-    .main-content,.page-wrapper,main{margin:0 !important;padding:16px !important}
-    .card{border:1px solid #ddd !important;border-radius:8px !important;background:#fff !important;margin-bottom:16px !important;page-break-inside:avoid;box-shadow:none !important}
-    .stats-grid{display:grid !important;grid-template-columns:repeat(4,1fr) !important;gap:10px !important;margin-bottom:16px !important}
-    .stat-card{border:1px solid #ddd !important;border-radius:8px !important;padding:12px !important;background:#fff !important;box-shadow:none !important;page-break-inside:avoid}
-    .stat-value{color:#111 !important;font-size:1.3rem !important}
-    .print-chart{height:180px !important}
-    canvas{max-height:180px !important}
-    table{width:100% !important;border-collapse:collapse !important}
-    th{background:#f5f5f5 !important;color:#333 !important;padding:8px !important;font-size:.75rem !important}
-    td{padding:8px !important;font-size:.78rem !important;border-bottom:1px solid #eee !important;color:#333 !important}
-    .badge{border:1px solid #ccc !important;color:#333 !important;background:#f5f5f5 !important;padding:2px 8px !important;border-radius:20px !important;font-size:.65rem !important}
-    .calc-box{background:#fff8f5 !important;border-left:3px solid #e8622a !important}
-    .calc-num{background:#e8622a !important}
-}
-</style>
-
-<!-- ══════════════════════════════════════
-     JAVASCRIPT
-     ══════════════════════════════════════ -->
 <script>
-function exportPDF() {
-    const btn = document.querySelector('button[onclick="exportPDF()"]');
-    if (btn) { btn.textContent = '⏳ Preparing…'; btn.disabled = true; }
-    setTimeout(() => {
-        window.print();
-        if (btn) { btn.textContent = '🖨️ Export PDF'; btn.disabled = false; }
-    }, 400);
-}
-
-function printSection(sectionId, title) {
-    const section = document.getElementById(sectionId);
-    if (!section) return;
-
-    // Capture canvas charts as images
-    const canvases = section.querySelectorAll('canvas');
-    const chartImages = {};
-    canvases.forEach(c => { chartImages[c.id] = c.toDataURL('image/png'); });
-
-    let sectionHTML = section.innerHTML;
-    canvases.forEach(c => {
-        sectionHTML = sectionHTML.replace(
-            new RegExp(`<canvas id="${c.id}"[^>]*></canvas>`, 'g'),
-            `<img src="${chartImages[c.id]}" style="max-width:100%;height:220px;object-fit:contain">`
-        );
-    });
-
-    const generated = <?= json_encode($generated_at) ?>;
-    const printHTML = `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>${title} — Minmi Restaurent</title>
-    <style>
-        * { box-sizing:border-box; margin:0; padding:0 }
-        body { font-family:'Segoe UI',Arial,sans-serif; font-size:13px; color:#111; background:#fff; padding:32px }
-        .pdf-top { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #e8622a; padding-bottom:14px; margin-bottom:20px }
-        .pdf-brand { font-size:1.3rem; font-weight:700; color:#e8622a }
-        .pdf-sub { font-size:.8rem; color:#888; margin-top:4px }
-        .pdf-meta { text-align:right; font-size:.75rem; color:#888 }
-        .pdf-section-title { font-size:1rem; font-weight:700; color:#e8622a; margin-bottom:16px }
-        .calc-box { background:#fff8f5; border-left:3px solid #e8622a; border-radius:0 6px 6px 0; padding:12px 14px; margin:12px 0 16px }
-        .calc-title { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:#e8622a; margin-bottom:8px }
-        .calc-steps { display:flex; flex-direction:column; gap:7px }
-        .calc-step { display:flex; align-items:flex-start; gap:10px; font-size:.8rem; color:#444; line-height:1.5 }
-        .calc-num { background:#e8622a; color:#fff; border-radius:50%; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; font-size:.65rem; font-weight:700; flex-shrink:0; margin-top:1px }
-        code { background:#f0f0f0; padding:1px 5px; border-radius:3px; font-size:.76rem; color:#c0392b }
-        table { width:100%; border-collapse:collapse; margin-top:12px }
-        th { background:#f5f5f5; padding:8px 10px; font-size:.73rem; text-align:left; color:#333; border-bottom:2px solid #ddd }
-        td { padding:8px 10px; font-size:.78rem; border-bottom:1px solid #eee; color:#333 }
-        .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:.65rem; font-weight:600; border:1px solid #ccc; background:#f5f5f5; color:#333 }
-        .badge-red { background:#fef2f2; color:#dc2626; border-color:#fca5a5 }
-        .badge-green { background:#f0fdf4; color:#16a34a; border-color:#86efac }
-        .no-print, button { display:none !important }
-        .pdf-footer { margin-top:32px; padding-top:12px; border-top:1px solid #ddd; display:flex; justify-content:space-between; font-size:.72rem; color:#aaa }
-    </style>
-</head>
-<body>
-    <div class="pdf-top">
-        <div>
-            <div class="pdf-brand">🔥 Minmi Restaurent</div>
-            <div class="pdf-sub">${title}</div>
-        </div>
-        <div class="pdf-meta">Generated: ${generated}<br>All time data</div>
-    </div>
-    <div class="pdf-section-title">${title}</div>
-    ${sectionHTML}
-    <div class="pdf-footer">
-        <span>🔥 Minmi Restaurent — Confidential</span>
-        <span>Generated: ${generated}</span>
-    </div>
-</body>
-</html>`;
-
-    const iframe = document.getElementById('printFrame');
-    iframe.style.display = 'none';
-    iframe.srcdoc = printHTML;
-    iframe.onload = function() {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-    };
-}
+    // Pass PHP-generated timestamp to external JS file
+    window.REPORTS_GENERATED_AT = <?= json_encode($generated_at) ?>;
 </script>
+<script src="../assets/js/reports.js"></script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

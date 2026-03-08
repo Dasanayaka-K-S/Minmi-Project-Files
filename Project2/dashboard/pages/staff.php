@@ -4,67 +4,45 @@
 //  Place in: dashboard/pages/staff.php
 // ============================================================
 
+require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 
-// ════════════════════════════════════════
-//  HANDLE POST ACTIONS
-// ════════════════════════════════════════
 $action   = $_POST['action']  ?? '';
 $item_id  = $_POST['item_id'] ?? '';
 $msg      = '';
 $msg_type = 'success';
 
-// ── ADD ───────────────────────────────────────────────────
 if ($action === 'add') {
     $new_id = 'STF-' . str_pad(rand(100, 999), 3, '0', STR_PAD_LEFT);
     $parts  = explode(' ', trim($_POST['name']));
     $avatar = strtoupper(substr($parts[0],0,1) . (isset($parts[1]) ? substr($parts[1],0,1) : ''));
     $colors = ['#e8622a','#f5c842','#3ecf8e','#4e9cf7','#a855f7','#f472b6'];
     $color  = $colors[array_rand($colors)];
-
     $pdo->prepare("
         INSERT INTO staff (id,name,role,dept,email,phone,joined,schedule,status,salary,rating,avatar,color)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     ")->execute([
-        $new_id,
-        trim($_POST['name']),
-        trim($_POST['role']),
-        $_POST['dept'],
-        trim($_POST['email']),
-        trim($_POST['phone'] ?? ''),
-        $_POST['joined'] ?: date('Y-m-d'),
-        $_POST['schedule'],
-        $_POST['status'],
-        (int)$_POST['salary'],
-        (float)($_POST['rating'] ?: 0),
-        $avatar,
-        $color,
+        $new_id, trim($_POST['name']), trim($_POST['role']), $_POST['dept'],
+        trim($_POST['email']), trim($_POST['phone'] ?? ''),
+        $_POST['joined'] ?: date('Y-m-d'), $_POST['schedule'], $_POST['status'],
+        (int)$_POST['salary'], (float)($_POST['rating'] ?: 0), $avatar, $color,
     ]);
     $msg = '✅ "' . htmlspecialchars($_POST['name']) . '" added to staff!';
 }
 
-// ── EDIT ──────────────────────────────────────────────────
 if ($action === 'edit' && $item_id) {
     $pdo->prepare("
         UPDATE staff SET name=?,role=?,dept=?,email=?,phone=?,joined=?,schedule=?,status=?,salary=?,rating=?
         WHERE id=?
     ")->execute([
-        trim($_POST['name']),
-        trim($_POST['role']),
-        $_POST['dept'],
-        trim($_POST['email']),
-        trim($_POST['phone'] ?? ''),
-        $_POST['joined'],
-        $_POST['schedule'],
-        $_POST['status'],
-        (int)$_POST['salary'],
-        (float)($_POST['rating'] ?: 0),
-        $item_id,
+        trim($_POST['name']), trim($_POST['role']), $_POST['dept'],
+        trim($_POST['email']), trim($_POST['phone'] ?? ''),
+        $_POST['joined'], $_POST['schedule'], $_POST['status'],
+        (int)$_POST['salary'], (float)($_POST['rating'] ?: 0), $item_id,
     ]);
     $msg = '✅ "' . htmlspecialchars($_POST['name']) . '" updated!';
 }
 
-// ── DELETE ────────────────────────────────────────────────
 if ($action === 'delete' && $item_id) {
     $row = $pdo->prepare("SELECT name FROM staff WHERE id=?");
     $row->execute([$item_id]);
@@ -74,44 +52,31 @@ if ($action === 'delete' && $item_id) {
     $msg_type = 'danger';
 }
 
-// ════════════════════════════════════════
-//  FETCH FRESH DATA
-// ════════════════════════════════════════
 $staff = $pdo->query("SELECT * FROM staff ORDER BY dept, name")->fetchAll();
 
-$page_title = 'Staff Management';
-$extra_css  = '../assets/css/staff.css';
-
+$page_title    = 'Staff Management';
 $on_duty       = count(array_filter($staff, fn($s) => $s['status'] === 'On Duty'));
 $off_duty      = count(array_filter($staff, fn($s) => $s['status'] === 'Off Duty'));
 $on_leave      = count(array_filter($staff, fn($s) => $s['status'] === 'Leave'));
 $total_payroll = array_sum(array_column($staff, 'salary'));
 $avg_rating    = count($staff) ? round(array_sum(array_column($staff, 'rating')) / count($staff), 1) : 0;
 $dept_counts   = count($staff) ? array_count_values(array_column($staff, 'dept')) : [];
+$dept_labels   = json_encode(array_keys($dept_counts));
+$dept_vals     = json_encode(array_values($dept_counts));
+$salary_names  = json_encode(array_column(array_slice($staff, 0, 8), 'name'));
+$salary_vals   = json_encode(array_column(array_slice($staff, 0, 8), 'salary'));
+$staff_json    = json_encode($staff);
 
-$dept_labels  = json_encode(array_keys($dept_counts));
-$dept_vals    = json_encode(array_values($dept_counts));
-$salary_names = json_encode(array_column(array_slice($staff, 0, 8), 'name'));
-$salary_vals  = json_encode(array_column(array_slice($staff, 0, 8), 'salary'));
-// Pass full staff data as JSON — buttons will use this instead of inline params
-$staff_json   = json_encode($staff);
+$page_scripts = "
+if(typeof buildDoughnutChart==='function') buildDoughnutChart('deptChart', {$dept_labels}, {$dept_vals}, ['#e8622a','#4e9cf7','#3ecf8e','#a855f7']);
+if(typeof buildBarChart==='function') buildBarChart('salaryChart', {$salary_names}, {$salary_vals}, '#f5c842');
+";
 
 function statusBadge(string $s): string {
-    return match($s) {
-        'On Duty'  => 'badge-green',
-        'Off Duty' => 'badge-gray',
-        'Leave'    => 'badge-yellow',
-        default    => 'badge-gray'
-    };
+    return match($s) { 'On Duty'=>'badge-green', 'Off Duty'=>'badge-gray', 'Leave'=>'badge-yellow', default=>'badge-gray' };
 }
 function deptBadge(string $d): string {
-    return match($d) {
-        'Kitchen'    => 'badge-orange',
-        'Front'      => 'badge-blue',
-        'Bar'        => 'badge-purple',
-        'Management' => 'badge-pink',
-        default      => 'badge-gray'
-    };
+    return match($d) { 'Kitchen'=>'badge-orange', 'Front'=>'badge-blue', 'Bar'=>'badge-purple', 'Management'=>'badge-pink', default=>'badge-gray' };
 }
 function starStr(float $r): string {
     return str_repeat('★', (int)floor($r)) . str_repeat('☆', 5-(int)floor($r));
@@ -120,9 +85,6 @@ function starStr(float $r): string {
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<!-- ═══════════════════════════════════════
-     FLASH MESSAGE
-     ═══════════════════════════════════════ -->
 <?php if ($msg): ?>
 <div class="flash-msg flash-<?= $msg_type ?>" id="flashMsg">
     <?= $msg ?>
@@ -130,27 +92,24 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
-<!-- ═══════════════════════════════════════
-     PAGE HEADER
-     ═══════════════════════════════════════ -->
-<div class="page-header anim-1">
-    <div class="page-header-text">
-        <h1>Staff Management</h1>
-        <p>Manage your team — roles, schedules, performance &amp; payroll.</p>
+<div class="page-header">
+    <div>
+        <h1 style="font-family:'DM Serif Display',serif;font-size:1.9rem;font-weight:400;letter-spacing:-.03em">Staff Management</h1>
+        <p style="color:var(--text-2);font-size:.85rem;margin-top:4px">Manage your team — roles, schedules, performance &amp; payroll.</p>
     </div>
-    <div class="page-header-actions">
-        <div class="view-toggle">
-            <button class="view-btn active" id="viewTableBtn" onclick="switchView('table')">☰ Table</button>
-            <button class="view-btn"        id="viewCardBtn"  onclick="switchView('card')">⊞ Cards</button>
+    <div style="display:flex;gap:10px;align-items:center">
+        <div style="display:flex;border:1px solid var(--border-l);border-radius:var(--radius);overflow:hidden">
+            <button class="view-btn active" id="viewTableBtn" onclick="switchView('table')"
+                    style="padding:7px 14px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:.82rem">☰ Table</button>
+            <button class="view-btn" id="viewCardBtn" onclick="switchView('card')"
+                    style="padding:7px 14px;background:transparent;color:var(--text-2);border:none;cursor:pointer;font-size:.82rem">⊞ Cards</button>
         </div>
         <button class="btn btn-primary" onclick="openModal('addModal')">＋ Add Staff Member</button>
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     KPI STATS
-     ═══════════════════════════════════════ -->
-<div class="stats-grid anim-2">
+<!-- KPI STATS -->
+<div class="stats-grid">
     <div class="stat-card blue">
         <div class="stat-icon">👨‍🍳</div>
         <div class="stat-label">Total Staff</div>
@@ -172,8 +131,8 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="stat-card orange">
         <div class="stat-icon">💵</div>
         <div class="stat-label">Monthly Payroll</div>
-        <div class="stat-value">$<?= number_format($total_payroll/1000,1) ?>k</div>
-        <div class="stat-sub">$<?= number_format($total_payroll) ?> total</div>
+        <div class="stat-value">Rs. <?= number_format($total_payroll/1000, 1) ?>k</div>
+        <div class="stat-sub">Rs. <?= number_format($total_payroll) ?> total</div>
     </div>
     <div class="stat-card purple">
         <div class="stat-icon">⭐</div>
@@ -183,11 +142,8 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     CHARTS
-     ═══════════════════════════════════════ -->
 <?php if (!empty($staff)): ?>
-<div class="grid-2 anim-3">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
     <div class="card">
         <div class="card-header">
             <div class="card-title">Staff by Department</div>
@@ -204,8 +160,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- DEPARTMENT PERFORMANCE -->
-<div class="card anim-4">
+<div class="card">
     <div class="card-header"><div class="card-title">Department Performance Rating</div></div>
     <?php
     $dept_ratings = [];
@@ -215,27 +170,24 @@ require_once __DIR__ . '/../includes/header.php';
         $pct = round(($avg/5)*100);
         $col = $avg>=4.7?'var(--green)':($avg>=4.3?'var(--yellow)':'var(--accent)');
     ?>
-    <div class="progress-row">
-        <span class="progress-label"><?= htmlspecialchars($dept) ?></span>
-        <div class="progress-bar-wrap">
-            <div class="progress-bar" style="width:<?= $pct ?>%;background:<?= $col ?>"></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <span style="min-width:100px;font-size:.84rem;font-weight:500"><?= htmlspecialchars($dept) ?></span>
+        <div style="flex:1;height:8px;background:var(--bg-3);border-radius:4px;overflow:hidden">
+            <div style="width:<?= $pct ?>%;height:100%;background:<?= $col ?>;border-radius:4px"></div>
         </div>
-        <span class="progress-val"><?= $avg ?>/5</span>
+        <span style="font-size:.82rem;font-weight:700;min-width:40px;text-align:right"><?= $avg ?>/5</span>
     </div>
     <?php endforeach; ?>
 </div>
 <?php endif; ?>
 
-<!-- ═══════════════════════════════════════
-     FILTER BAR
-     ═══════════════════════════════════════ -->
-<div class="filter-bar anim-5">
+<!-- FILTER BAR -->
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
     <input type="text" class="search-input" id="staffSearch"
-           placeholder="🔍  Search by name, role, email…" oninput="filterStaff()">
+           placeholder="🔍  Search by name, role, email…" oninput="filterStaff()" style="flex:1;min-width:200px">
     <select class="search-input" id="deptFilter" style="min-width:140px" onchange="filterStaff()">
         <option value="">All Departments</option>
-        <option>Kitchen</option><option>Front</option>
-        <option>Bar</option><option>Management</option>
+        <option>Kitchen</option><option>Front</option><option>Bar</option><option>Management</option>
     </select>
     <select class="search-input" id="statusFilter" style="min-width:140px" onchange="filterStaff()">
         <option value="">All Statuses</option>
@@ -243,11 +195,9 @@ require_once __DIR__ . '/../includes/header.php';
     </select>
 </div>
 
-<!-- ═══════════════════════════════════════
-     TABLE VIEW
-     ═══════════════════════════════════════ -->
-<div id="tableView" class="anim-6">
-    <div class="card" style="margin-bottom:0">
+<!-- TABLE VIEW -->
+<div id="tableView">
+    <div class="card">
         <div class="card-header">
             <div class="card-title">All Staff Members</div>
             <span class="badge badge-gray" id="staffCount"><?= count($staff) ?> members</span>
@@ -276,27 +226,30 @@ require_once __DIR__ . '/../includes/header.php';
                     data-dept="<?= htmlspecialchars($s['dept']) ?>"
                     data-status="<?= htmlspecialchars($s['status']) ?>">
                     <td>
-                        <div class="staff-cell">
-                            <div class="staff-avatar" style="background:<?= htmlspecialchars($s['color']) ?>"><?= htmlspecialchars($s['avatar']) ?></div>
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <div style="width:36px;height:36px;border-radius:50%;background:<?= htmlspecialchars($s['color']) ?>;
+                                        display:flex;align-items:center;justify-content:center;
+                                        font-size:.8rem;font-weight:700;color:#fff;flex-shrink:0">
+                                <?= htmlspecialchars($s['avatar']) ?>
+                            </div>
                             <div>
-                                <div class="staff-name"><?= htmlspecialchars($s['name']) ?></div>
-                                <div class="staff-id"><?= htmlspecialchars($s['id']) ?> · <?= htmlspecialchars($s['email']) ?></div>
+                                <div style="font-weight:600;font-size:.85rem"><?= htmlspecialchars($s['name']) ?></div>
+                                <div style="font-size:.72rem;color:var(--text-3)"><?= htmlspecialchars($s['id']) ?> · <?= htmlspecialchars($s['email']) ?></div>
                             </div>
                         </div>
                     </td>
-                    <td><?= htmlspecialchars($s['role']) ?></td>
+                    <td style="font-size:.83rem"><?= htmlspecialchars($s['role']) ?></td>
                     <td><span class="badge <?= deptBadge($s['dept']) ?>"><?= $s['dept'] ?></span></td>
                     <td style="color:var(--text-2);font-size:.8rem"><?= $s['schedule'] ?></td>
                     <td><span class="badge <?= statusBadge($s['status']) ?>"><?= $s['status'] ?></span></td>
                     <td>
-                        <span class="star-rating"><?= starStr((float)$s['rating']) ?></span>
-                        <span class="star-val"><?= $s['rating'] ?></span>
+                        <span style="color:#f5c842;letter-spacing:1px;font-size:.85rem"><?= starStr((float)$s['rating']) ?></span>
+                        <span style="font-size:.75rem;color:var(--text-3);margin-left:4px"><?= $s['rating'] ?></span>
                     </td>
-                    <td><strong>$<?= number_format($s['salary']) ?></strong></td>
+                    <td><strong>Rs. <?= number_format($s['salary']) ?></strong></td>
                     <td style="color:var(--text-3);font-size:.8rem"><?= $s['joined'] ?></td>
                     <td>
                         <div style="display:flex;gap:6px;justify-content:center">
-                            <!-- KEY FIX: use data-id attribute, not onclick params -->
                             <button class="btn btn-ghost btn-sm btn-icon btn-edit"
                                     data-id="<?= htmlspecialchars($s['id']) ?>" title="Edit">✏️</button>
                             <button class="btn btn-ghost btn-sm btn-icon btn-profile"
@@ -315,41 +268,40 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     CARD VIEW
-     ═══════════════════════════════════════ -->
+<!-- CARD VIEW -->
 <div id="cardView" style="display:none">
-    <div class="staff-cards" id="staffCardsGrid">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px" id="staffCardsGrid">
     <?php foreach ($staff as $s): ?>
-    <div class="staff-card"
-         style="border-top:2px solid <?= htmlspecialchars($s['color']) ?>"
+    <div class="card staff-card"
+         style="border-top:3px solid <?= htmlspecialchars($s['color']) ?>"
          data-name="<?= strtolower(htmlspecialchars($s['name'])) ?>"
          data-role="<?= strtolower(htmlspecialchars($s['role'])) ?>"
          data-email="<?= strtolower(htmlspecialchars($s['email'])) ?>"
          data-dept="<?= htmlspecialchars($s['dept']) ?>"
          data-status="<?= htmlspecialchars($s['status']) ?>">
-        <div class="card-top">
-            <div class="avatar-lg" style="background:<?= htmlspecialchars($s['color']) ?>"><?= htmlspecialchars($s['avatar']) ?></div>
-            <div>
-                <div class="name"><?= htmlspecialchars($s['name']) ?></div>
-                <div class="role"><?= htmlspecialchars($s['role']) ?></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            <div style="width:48px;height:48px;border-radius:50%;background:<?= htmlspecialchars($s['color']) ?>;
+                        display:flex;align-items:center;justify-content:center;
+                        font-size:1rem;font-weight:700;color:#fff;flex-shrink:0">
+                <?= htmlspecialchars($s['avatar']) ?>
             </div>
-            <div style="margin-left:auto">
-                <span class="badge <?= statusBadge($s['status']) ?>"><?= $s['status'] ?></span>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= htmlspecialchars($s['name']) ?></div>
+                <div style="font-size:.75rem;color:var(--text-3)"><?= htmlspecialchars($s['role']) ?></div>
             </div>
+            <span class="badge <?= statusBadge($s['status']) ?>"><?= $s['status'] ?></span>
         </div>
-        <div class="card-meta">
-            <div class="meta-item"><label>Department</label><span><?= $s['dept'] ?></span></div>
-            <div class="meta-item"><label>Schedule</label><span><?= $s['schedule'] ?></span></div>
-            <div class="meta-item"><label>Salary/mo</label><span><strong>$<?= number_format($s['salary']) ?></strong></span></div>
-            <div class="meta-item"><label>Joined</label><span><?= $s['joined'] ?></span></div>
-            <div class="meta-item" style="grid-column:1/-1">
-                <label>Performance</label>
-                <span class="star-rating"><?= starStr((float)$s['rating']) ?></span>
-                <span class="star-val"><?= $s['rating'] ?></span>
-            </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;font-size:.78rem">
+            <div><span style="color:var(--text-3)">Dept</span><br><strong><?= $s['dept'] ?></strong></div>
+            <div><span style="color:var(--text-3)">Schedule</span><br><strong><?= $s['schedule'] ?></strong></div>
+            <div><span style="color:var(--text-3)">Salary/mo</span><br><strong>Rs. <?= number_format($s['salary']) ?></strong></div>
+            <div><span style="color:var(--text-3)">Joined</span><br><strong><?= $s['joined'] ?></strong></div>
         </div>
-        <div class="card-actions">
+        <div style="margin-bottom:14px;font-size:.82rem">
+            <span style="color:#f5c842;letter-spacing:1px"><?= starStr((float)$s['rating']) ?></span>
+            <span style="color:var(--text-3);margin-left:4px"><?= $s['rating'] ?>/5</span>
+        </div>
+        <div style="display:flex;gap:6px">
             <button class="btn btn-ghost btn-sm btn-edit" data-id="<?= htmlspecialchars($s['id']) ?>" style="flex:1">✏️ Edit</button>
             <button class="btn btn-ghost btn-sm btn-profile" data-id="<?= htmlspecialchars($s['id']) ?>" style="flex:1">👤 Profile</button>
             <button class="btn btn-danger btn-sm btn-icon btn-delete"
@@ -361,11 +313,9 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     PAYROLL SUMMARY
-     ═══════════════════════════════════════ -->
+<!-- PAYROLL SUMMARY -->
 <?php if (!empty($staff)): ?>
-<div class="card" style="margin-top:20px">
+<div class="card" style="margin-top:16px">
     <div class="card-header">
         <div class="card-title">Monthly Payroll Summary</div>
         <span class="badge badge-orange">Auto-calculated</span>
@@ -377,22 +327,19 @@ require_once __DIR__ . '/../includes/header.php';
     foreach ($dept_pay as $dept => $total):
         $cnt = count(array_filter($staff, fn($s) => $s['dept'] === $dept));
     ?>
-    <div class="payroll-row">
-        <span><?= htmlspecialchars($dept) ?> Department (<?= $cnt ?> staff)</span>
-        <strong>$<?= number_format($total) ?></strong>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:.84rem">
+        <span style="color:var(--text-2)"><?= htmlspecialchars($dept) ?> Department (<?= $cnt ?> staff)</span>
+        <strong>Rs. <?= number_format($total) ?></strong>
     </div>
     <?php endforeach; ?>
-    <div class="payroll-row payroll-total">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0 0;font-size:.9rem;font-weight:700">
         <span>Total Monthly Payroll</span>
-        <span class="payroll-grand">$<?= number_format($total_payroll) ?></span>
+        <span style="color:var(--accent);font-size:1.1rem">Rs. <?= number_format($total_payroll) ?></span>
     </div>
 </div>
 <?php endif; ?>
 
-
-<!-- ═══════════════════════════════════════
-     ADD MODAL
-     ═══════════════════════════════════════ -->
+<!-- ADD MODAL -->
 <div class="modal-backdrop" id="addModal">
     <div class="modal">
         <div class="modal-header">
@@ -425,11 +372,11 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label class="form-label">Phone</label>
-                        <input class="form-input" type="tel" name="phone" placeholder="+1 555-0000">
+                        <input class="form-input" type="tel" name="phone" placeholder="+94 77 000 0000">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Monthly Salary ($) *</label>
-                        <input class="form-input" type="number" name="salary" min="0" placeholder="2500" required>
+                        <label class="form-label">Monthly Salary (Rs.) *</label>
+                        <input class="form-input" type="number" name="salary" min="0" placeholder="25000" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Schedule</label>
@@ -463,10 +410,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-     EDIT MODAL
-     ═══════════════════════════════════════ -->
+<!-- EDIT MODAL -->
 <div class="modal-backdrop" id="editModal">
     <div class="modal">
         <div class="modal-header">
@@ -503,7 +447,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <input class="form-input" type="tel" name="phone" id="edit_phone">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Monthly Salary ($) *</label>
+                        <label class="form-label">Monthly Salary (Rs.) *</label>
                         <input class="form-input" type="number" name="salary" id="edit_salary" min="0" required>
                     </div>
                     <div class="form-group">
@@ -538,10 +482,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-     PROFILE MODAL
-     ═══════════════════════════════════════ -->
+<!-- PROFILE MODAL -->
 <div class="modal-backdrop" id="profileModal">
     <div class="modal">
         <div class="modal-header">
@@ -552,10 +493,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-     DELETE MODAL
-     ═══════════════════════════════════════ -->
+<!-- DELETE MODAL -->
 <div class="modal-backdrop" id="deleteModal">
     <div class="modal" style="max-width:420px">
         <div class="modal-body" style="text-align:center;padding:32px 28px 24px">
@@ -574,57 +512,34 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="toast" id="toast"></div>
-
-<!-- ═══════════════════════════════════════
-     STYLES
-     ═══════════════════════════════════════ -->
 <style>
-.flash-msg{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;
-    border-radius:var(--radius);margin-bottom:20px;font-size:.85rem;font-weight:600}
-.flash-success{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
-.flash-danger{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;
-    display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+.flash-msg{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-radius:var(--radius);margin-bottom:20px;font-size:.85rem;font-weight:600}
+.flash-success{background:rgba(62,207,142,.1);color:#3ecf8e;border:1px solid #3ecf8e}
+.flash-danger{background:rgba(232,66,66,.1);color:#e84242;border:1px solid #e84242}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .modal-backdrop.open{display:flex}
-.modal{background:var(--bg-2);border:1px solid var(--border-l);border-radius:var(--radius-lg);
-    width:100%;max-width:580px;max-height:90vh;overflow-y:auto;animation:modalIn .25s ease}
+.modal{background:var(--bg-2);border:1px solid var(--border-l);border-radius:var(--radius-lg);width:100%;max-width:580px;max-height:90vh;overflow-y:auto;animation:modalIn .25s ease}
 @keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(12px)}to{opacity:1;transform:none}}
 .modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0}
 .modal-title{font-family:'DM Serif Display',serif;font-size:1.1rem;font-weight:400}
-.modal-close{background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1.2rem;
-    padding:4px;border-radius:6px;transition:color .2s}
+.modal-close{background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1.2rem;padding:4px;border-radius:6px}
 .modal-close:hover{color:var(--text)}
 .modal-body{padding:18px 24px 24px}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .form-group{display:flex;flex-direction:column;gap:6px}
-.form-group.full{grid-column:1/-1}
 .form-label{font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
-.form-input{background:var(--bg-3);border:1px solid var(--border-l);color:var(--text);
-    border-radius:var(--radius);padding:9px 13px;font-family:'DM Sans',sans-serif;
-    font-size:.85rem;outline:none;transition:border-color .2s;width:100%}
+.form-input{background:var(--bg-3);border:1px solid var(--border-l);color:var(--text);border-radius:var(--radius);padding:9px 13px;font-family:'DM Sans',sans-serif;font-size:.85rem;outline:none;transition:border-color .2s;width:100%}
 .form-input:focus{border-color:var(--accent)}
-.form-input::placeholder{color:var(--text-3)}
-select.form-input{cursor:pointer}
-.form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;
-    padding-top:16px;border-top:1px solid var(--border)}
+.form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.search-input{background:var(--bg-3);border:1px solid var(--border-l);color:var(--text);border-radius:var(--radius);padding:8px 13px;font-family:'DM Sans',sans-serif;font-size:.83rem;outline:none;transition:border-color .2s}
+.search-input:focus{border-color:var(--accent)}
 .btn-icon{width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px}
 </style>
 
-
-<!-- ═══════════════════════════════════════
-     JAVASCRIPT
-     ═══════════════════════════════════════ -->
 <script>
-// ── Staff data from PHP (safe JSON, no quote issues) ──────
-const STAFF_DATA   = <?= $staff_json ?>;
-const DEPT_LABELS  = <?= $dept_labels ?>;
-const DEPT_VALS    = <?= $dept_vals ?>;
-const SALARY_NAMES = <?= $salary_names ?>;
-const SALARY_VALS  = <?= $salary_vals ?>;
+const STAFF_DATA  = <?= $staff_json ?>;
 
-// ── Modal helpers ─────────────────────────────────────────
-function openModal(id)  { document.getElementById(id).classList.add('open');    }
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
 document.querySelectorAll('.modal-backdrop').forEach(bd =>
@@ -635,19 +550,12 @@ document.addEventListener('keydown', e => {
         document.querySelectorAll('.modal-backdrop.open').forEach(bd => bd.classList.remove('open'));
 });
 
-// ════════════════════════════════════════
-//  BUTTON EVENT LISTENERS
-//  Using data-id to look up staff from STAFF_DATA
-//  This avoids ALL quote-breaking issues
-// ════════════════════════════════════════
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('button');
     if (!btn) return;
 
-    // ── EDIT button ───────────────────────────────────────
     if (btn.classList.contains('btn-edit')) {
-        const id = btn.dataset.id;
-        const s  = STAFF_DATA.find(x => x.id === id);
+        const s = STAFF_DATA.find(x => x.id === btn.dataset.id);
         if (!s) return;
         document.getElementById('edit_id').value       = s.id;
         document.getElementById('edit_name').value     = s.name;
@@ -663,13 +571,11 @@ document.addEventListener('click', function(e) {
         openModal('editModal');
     }
 
-    // ── PROFILE button ────────────────────────────────────
     if (btn.classList.contains('btn-profile')) {
-        const id = btn.dataset.id;
-        const s  = STAFF_DATA.find(x => x.id === id);
+        const s = STAFF_DATA.find(x => x.id === btn.dataset.id);
         if (!s) return;
         const stars = '★'.repeat(Math.floor(s.rating)) + '☆'.repeat(5 - Math.floor(s.rating));
-        const stColor = s.status==='On Duty'?'var(--green)':s.status==='Leave'?'var(--yellow)':'var(--text-3)';
+        const stColor = s.status==='On Duty'?'#3ecf8e':s.status==='Leave'?'#f5c842':'#888';
         document.getElementById('profileContent').innerHTML = `
             <div style="text-align:center;padding:16px 0 24px">
                 <div style="width:80px;height:80px;border-radius:50%;background:${s.color};
@@ -683,46 +589,41 @@ document.addEventListener('click', function(e) {
                              font-size:.72rem;font-weight:700;background:rgba(255,255,255,.07);
                              color:${stColor}">${s.status}</span>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;
-                        padding-top:16px;border-top:1px solid var(--border)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:16px;border-top:1px solid var(--border)">
                 ${pRow('📧','Email',    s.email)}
                 ${pRow('📞','Phone',    s.phone || '—')}
                 ${pRow('🗓️','Schedule', s.schedule)}
                 ${pRow('📅','Joined',   s.joined || '—')}
-                ${pRow('💵','Salary',   '$'+Number(s.salary).toLocaleString()+'/mo')}
+                ${pRow('💵','Salary',   'Rs. '+Number(s.salary).toLocaleString()+'/mo')}
                 ${pRow('⭐','Rating',   stars + ' ' + s.rating)}
             </div>`;
         openModal('profileModal');
     }
 
-    // ── DELETE button ─────────────────────────────────────
     if (btn.classList.contains('btn-delete')) {
-        const id   = btn.dataset.id;
-        const name = btn.dataset.name;
-        document.getElementById('delete_id').value    = id;
+        document.getElementById('delete_id').value = btn.dataset.id;
         document.getElementById('deleteMsg').textContent =
-            'This will permanently remove "' + name + '" from the system. This cannot be undone.';
+            'This will permanently remove "' + btn.dataset.name + '" from the system. This cannot be undone.';
         openModal('deleteModal');
     }
 });
 
 function pRow(icon, label, value) {
     return `<div style="background:var(--bg-3);border-radius:var(--radius);padding:12px">
-        <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;
-                    color:var(--text-3);margin-bottom:4px">${icon} ${label}</div>
+        <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:4px">${icon} ${label}</div>
         <div style="font-size:.84rem;font-weight:600">${value}</div>
     </div>`;
 }
 
-// ── View toggle ───────────────────────────────────────────
 function switchView(view) {
     document.getElementById('tableView').style.display = view==='table' ? 'block' : 'none';
     document.getElementById('cardView').style.display  = view==='card'  ? 'block' : 'none';
-    document.getElementById('viewTableBtn').classList.toggle('active', view==='table');
-    document.getElementById('viewCardBtn').classList.toggle('active',  view==='card');
+    document.getElementById('viewTableBtn').style.background = view==='table' ? 'var(--accent)' : 'transparent';
+    document.getElementById('viewTableBtn').style.color      = view==='table' ? '#fff' : 'var(--text-2)';
+    document.getElementById('viewCardBtn').style.background  = view==='card'  ? 'var(--accent)' : 'transparent';
+    document.getElementById('viewCardBtn').style.color       = view==='card'  ? '#fff' : 'var(--text-2)';
 }
 
-// ── Live filter ───────────────────────────────────────────
 function filterStaff() {
     const q    = document.getElementById('staffSearch').value.toLowerCase();
     const dept = document.getElementById('deptFilter').value;
@@ -746,10 +647,8 @@ function filterStaff() {
     document.getElementById('staffCount').textContent = n + ' members';
 }
 
-// Auto dismiss flash
 const flash = document.getElementById('flashMsg');
 if (flash) setTimeout(() => flash.style.opacity = '0', 4000);
 </script>
 
-<script src="../assets/js/staff.js"></script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

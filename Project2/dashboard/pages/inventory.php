@@ -131,7 +131,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="card">
         <div class="card-header">
             <div class="card-title">Critical Low Stock</div>
-            <span class="badge badge-red"><?= count($low_stock_items) ?> items</span>
+            <span class="badge badge-red"><?= count($low_stock_items) ?> items</span> 
         </div>
         <div style="padding:4px 0">
         <?php if (count($low_stock_items) === 0): ?>

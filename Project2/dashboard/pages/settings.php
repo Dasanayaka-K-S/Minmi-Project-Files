@@ -4,6 +4,7 @@
 //  Place in: dashboard/pages/settings.php
 // ============================================================
 
+require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 
 function loadSettings(PDO $pdo): array {
@@ -341,7 +342,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="form-group"><label class="form-label">Currency Symbol</label><input class="form-input" type="text" name="currency_symbol" maxlength="5" value="<?= getSetting($S,'currency_symbol','$') ?>"></div>
+            <div class="form-group"><label class="form-label">Currency Symbol</label><input class="form-input" type="text" name="currency_symbol" maxlength="5" value="<?= getSetting($S,'currency_symbol','Rs.') ?>"></div>
         </div>
     </div>
 </div>
@@ -400,7 +401,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="form-grid">
             <div class="form-group"><label class="form-label">Low Stock Alert (units)</label><input class="form-input" type="number" name="alert_low_stock" min="1" value="<?= getSetting($S,'alert_low_stock','5') ?>"><span class="form-hint">Alert when stock falls below this</span></div>
             <div class="form-group"><label class="form-label">Pending Order Alert (mins)</label><input class="form-input" type="number" name="alert_pending_order_mins" min="1" value="<?= getSetting($S,'alert_pending_order_mins','15') ?>"><span class="form-hint">Alert if order stays pending longer</span></div>
-            <div class="form-group"><label class="form-label">Daily Revenue Target ($)</label><input class="form-input" type="number" name="alert_daily_revenue" min="0" value="<?= getSetting($S,'alert_daily_revenue','2500') ?>"><span class="form-hint">Alert if not met by 8pm</span></div>
+            <div class="form-group"><label class="form-label">Daily Revenue Target (Rs.)</label><input class="form-input" type="number" name="alert_daily_revenue" min="0" value="<?= getSetting($S,'alert_daily_revenue','2500') ?>"><span class="form-hint">Alert if not met by 8pm</span></div>
         </div>
     </div>
 </div>

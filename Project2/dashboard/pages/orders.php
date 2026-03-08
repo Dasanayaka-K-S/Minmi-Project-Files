@@ -2,9 +2,9 @@
 // ============================================================
 //  ORDERS — Minmi Restaurent Admin
 //  Place in: dashboard/pages/orders.php
-//  Actions: View, Change Status, Delete
 // ============================================================
 
+require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 
 // ════════════════════════════════════════
@@ -15,19 +15,41 @@ $item_id  = $_POST['item_id'] ?? '';
 $msg      = '';
 $msg_type = 'success';
 
-// ── STATUS CHANGE ──────────────────────────────────────────
 if ($action === 'status' && $item_id) {
     $new_status = $_POST['new_status'] ?? '';
-    $pdo->prepare("UPDATE orders SET status=? WHERE id=?")
-        ->execute([$new_status, $item_id]);
-    $msg = '✅ Order "' . htmlspecialchars($item_id) . '" marked as ' . htmlspecialchars($new_status) . '.';
+    $pdo->prepare("UPDATE orders SET status=? WHERE id=?")->execute([$new_status, $item_id]);
+    $msg = '✅ Order #' . htmlspecialchars($item_id) . ' marked as ' . htmlspecialchars($new_status) . '.';
 }
 
-// ── DELETE ─────────────────────────────────────────────────
 if ($action === 'delete' && $item_id) {
     $pdo->prepare("DELETE FROM orders WHERE id=?")->execute([$item_id]);
-    $msg      = '🗑️ Order "' . htmlspecialchars($item_id) . '" deleted.';
+    $msg      = '🗑️ Order #' . htmlspecialchars($item_id) . ' deleted.';
     $msg_type = 'danger';
+}
+
+// ════════════════════════════════════════
+//  ADD NEW ORDER
+// ════════════════════════════════════════
+if ($action === 'add') {
+    $customer = trim($_POST['customer'] ?? '');
+    $items    = trim($_POST['items']    ?? '');
+    $total    = floatval($_POST['total'] ?? 0);
+    $payment  = $_POST['payment']  ?? 'Cash';
+    $status   = $_POST['status']   ?? 'Pending';
+    $date     = date('Y-m-d');
+
+    if ($customer && $items && $total > 0) {
+        // Store items as JSON array
+        $items_arr = array_map('trim', explode(',', $items));
+        $items_json = json_encode(array_map(fn($i) => ['name' => $i], $items_arr));
+
+        $pdo->prepare("INSERT INTO orders (customer, items, total, status, date, payment) VALUES (?,?,?,?,?,?)")
+            ->execute([$customer, $items_json, $total, $status, $date, $payment]);
+        $msg = '✅ Order for "' . htmlspecialchars($customer) . '" added successfully.';
+    } else {
+        $msg      = '⚠️ Please fill in all required fields.';
+        $msg_type = 'danger';
+    }
 }
 
 // ════════════════════════════════════════
@@ -35,17 +57,16 @@ if ($action === 'delete' && $item_id) {
 // ════════════════════════════════════════
 $orders = $pdo->query("SELECT * FROM orders ORDER BY date DESC, id DESC")->fetchAll();
 
-// ── Stats ──────────────────────────────────────────────────
-$cnt_pending   = count(array_filter($orders, fn($o) => $o['status'] === 'Pending'));
-$cnt_confirmed = count(array_filter($orders, fn($o) => $o['status'] === 'Confirmed'));
-$cnt_preparing = count(array_filter($orders, fn($o) => $o['status'] === 'Preparing'));
-$cnt_delivered = count(array_filter($orders, fn($o) => $o['status'] === 'Delivered'));
-$cnt_cancelled = count(array_filter($orders, fn($o) => $o['status'] === 'Cancelled'));
-$total_revenue = array_sum(array_column(
+$cnt_pending    = count(array_filter($orders, fn($o) => $o['status'] === 'Pending'));
+$cnt_confirmed  = count(array_filter($orders, fn($o) => $o['status'] === 'Confirmed'));
+$cnt_processing = count(array_filter($orders, fn($o) => $o['status'] === 'Processing'));
+$cnt_delivered  = count(array_filter($orders, fn($o) => $o['status'] === 'Delivered'));
+$cnt_cancelled  = count(array_filter($orders, fn($o) => $o['status'] === 'Cancelled'));
+$total_revenue  = array_sum(array_column(
     array_filter($orders, fn($o) => $o['status'] === 'Delivered'), 'total'
 ));
 
-// ── Daily orders chart (last 7 days) ──────────────────────
+// Daily chart last 7 days
 $daily = [];
 for ($i = 6; $i >= 0; $i--) {
     $date  = date('Y-m-d', strtotime("-{$i} days"));
@@ -57,20 +78,18 @@ for ($i = 6; $i >= 0; $i--) {
 }
 $daily_labels = json_encode(array_keys($daily));
 $daily_vals   = json_encode(array_values($daily));
-
-$orders_json = json_encode($orders);
-$page_title  = 'Orders';
-
+$orders_json  = json_encode($orders);
+$page_title   = 'Orders';
 $page_scripts = "buildBarChart('dailyOrdersChart', {$daily_labels}, {$daily_vals}, '#4e9cf7');";
 
-// ── Badge helper ───────────────────────────────────────────
 function orderBadge(string $status): string {
     $map = [
-        'Pending'   => 'badge-yellow',
-        'Confirmed' => 'badge-blue',
-        'Preparing' => 'badge-orange',
-        'Delivered' => 'badge-green',
-        'Cancelled' => 'badge-red',
+        'Pending'    => 'badge-yellow',
+        'Confirmed'  => 'badge-blue',
+        'Processing' => 'badge-blue',
+        'Preparing'  => 'badge-orange',
+        'Delivered'  => 'badge-green',
+        'Cancelled'  => 'badge-red',
     ];
     return '<span class="badge ' . ($map[$status] ?? 'badge-gray') . '">' . htmlspecialchars($status) . '</span>';
 }
@@ -78,9 +97,6 @@ function orderBadge(string $status): string {
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<!-- ═══════════════════════════════════════
-     FLASH MESSAGE
-     ═══════════════════════════════════════ -->
 <?php if ($msg): ?>
 <div class="flash-msg flash-<?= $msg_type ?>" id="flashMsg">
     <?= $msg ?>
@@ -88,19 +104,16 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
-<!-- ═══════════════════════════════════════
-     PAGE HEADER
-     ═══════════════════════════════════════ -->
+<!-- PAGE HEADER -->
 <div class="page-header">
     <div>
         <h1 style="font-family:'DM Serif Display',serif;font-size:1.9rem;font-weight:400;letter-spacing:-.03em">Orders</h1>
         <p style="color:var(--text-2);font-size:.85rem;margin-top:4px">Track and manage incoming customer orders.</p>
     </div>
+    <button class="btn btn-primary" onclick="openModal('addModal')">＋ Add Order</button>
 </div>
 
-<!-- ═══════════════════════════════════════
-     KPI STATS
-     ═══════════════════════════════════════ -->
+<!-- KPI STATS -->
 <div class="stats-grid">
     <div class="stat-card yellow">
         <div class="stat-icon">⏳</div>
@@ -116,15 +129,15 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <div class="stat-card orange">
         <div class="stat-icon">🍳</div>
-        <div class="stat-label">Preparing</div>
-        <div class="stat-value"><?= $cnt_preparing ?></div>
+        <div class="stat-label">Processing</div>
+        <div class="stat-value"><?= $cnt_processing ?></div>
         <div class="stat-sub">In the kitchen</div>
     </div>
     <div class="stat-card green">
         <div class="stat-icon">✅</div>
         <div class="stat-label">Delivered</div>
         <div class="stat-value"><?= $cnt_delivered ?></div>
-        <div class="stat-sub">$<?= number_format($total_revenue, 0) ?> revenue</div>
+        <div class="stat-sub">Rs. <?= number_format($total_revenue, 0) ?> revenue</div>
     </div>
     <div class="stat-card red">
         <div class="stat-icon">❌</div>
@@ -134,9 +147,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     DAILY CHART
-     ═══════════════════════════════════════ -->
+<!-- DAILY CHART -->
 <div class="card">
     <div class="card-header">
         <div class="card-title">Daily Orders — Last 7 Days</div>
@@ -145,16 +156,13 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="chart-box"><canvas id="dailyOrdersChart"></canvas></div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     ORDERS TABLE
-     ═══════════════════════════════════════ -->
+<!-- ORDERS TABLE -->
 <div class="card">
     <div class="card-header">
         <div class="card-title">All Orders</div>
         <span class="badge badge-gray" id="orderCount"><?= count($orders) ?> orders</span>
     </div>
 
-    <!-- Filters -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
         <input type="text" id="searchOrders" class="search-input"
                placeholder="🔍  Search ID or customer…"
@@ -163,7 +171,7 @@ require_once __DIR__ . '/../includes/header.php';
             <option value="">All Statuses</option>
             <option>Pending</option>
             <option>Confirmed</option>
-            <option>Preparing</option>
+            <option>Processing</option>
             <option>Delivered</option>
             <option>Cancelled</option>
         </select>
@@ -171,20 +179,21 @@ require_once __DIR__ . '/../includes/header.php';
             <option value="">All Payments</option>
             <option>Card</option>
             <option>Cash</option>
+            <option>Other</option>
         </select>
     </div>
 
     <?php if (empty($orders)): ?>
     <div style="text-align:center;padding:48px;color:var(--text-3)">
         <div style="font-size:2.5rem;margin-bottom:10px">📦</div>
-        <p>No orders yet. Orders placed on your website will appear here automatically.</p>
+        <p>No orders yet. Click "＋ Add Order" to add one.</p>
     </div>
     <?php else: ?>
     <div class="table-wrap">
         <table id="ordersTable">
             <thead>
                 <tr>
-                    <th>Order ID</th>
+                    <th>#</th>
                     <th>Customer</th>
                     <th>Items</th>
                     <th>Total</th>
@@ -196,7 +205,6 @@ require_once __DIR__ . '/../includes/header.php';
             </thead>
             <tbody>
             <?php foreach ($orders as $o):
-                // Handle items — plain text or JSON
                 $items_display = $o['items'] ?? '';
                 $decoded = json_decode($items_display, true);
                 if (is_array($decoded)) {
@@ -210,35 +218,32 @@ require_once __DIR__ . '/../includes/header.php';
                 data-customer="<?= strtolower(htmlspecialchars($o['customer'])) ?>"
                 data-status="<?= htmlspecialchars($o['status']) ?>"
                 data-payment="<?= htmlspecialchars($o['payment']) ?>">
-                <td><code style="color:var(--accent-l);font-size:.78rem"><?= htmlspecialchars($o['id']) ?></code></td>
+                <td><code style="color:var(--accent-l);font-size:.78rem">#<?= htmlspecialchars($o['id']) ?></code></td>
                 <td><strong><?= htmlspecialchars($o['customer']) ?></strong></td>
-                <td style="color:var(--text-2);font-size:.8rem;max-width:180px;
-                            overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                <td style="color:var(--text-2);font-size:.8rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
                     title="<?= htmlspecialchars($items_display) ?>">
                     <?= htmlspecialchars(mb_strimwidth($items_display, 0, 30, '…')) ?>
                 </td>
-                <td><strong>$<?= number_format($o['total'], 2) ?></strong></td>
+                <td><strong>Rs. <?= number_format($o['total'], 2) ?></strong></td>
                 <td>
-                    <?php if (strtolower($o['payment']) === 'card'): ?>
-                        <span class="badge badge-blue">💳 Card</span>
-                    <?php else: ?>
-                        <span class="badge badge-gray">💵 Cash</span>
-                    <?php endif; ?>
+                    <?php
+                    $pay = strtolower($o['payment']);
+                    if ($pay === 'card') echo '<span class="badge badge-blue">💳 Card</span>';
+                    elseif ($pay === 'cash') echo '<span class="badge badge-gray">💵 Cash</span>';
+                    else echo '<span class="badge badge-gray">📱 ' . htmlspecialchars($o['payment']) . '</span>';
+                    ?>
                 </td>
                 <td style="color:var(--text-3);font-size:.8rem"><?= htmlspecialchars($o['date']) ?></td>
                 <td><?= orderBadge($o['status']) ?></td>
                 <td>
                     <div style="display:flex;gap:4px;justify-content:center">
-                        <!-- View -->
                         <button class="btn btn-ghost btn-sm btn-icon btn-view"
                                 data-id="<?= htmlspecialchars($o['id']) ?>"
                                 title="View Details">👁️</button>
-                        <!-- Status -->
                         <button class="btn btn-ghost btn-sm btn-icon btn-status"
                                 data-id="<?= htmlspecialchars($o['id']) ?>"
                                 data-status="<?= htmlspecialchars($o['status']) ?>"
                                 title="Change Status">🔄</button>
-                        <!-- Delete -->
                         <button class="btn btn-danger btn-sm btn-icon btn-delete"
                                 data-id="<?= htmlspecialchars($o['id']) ?>"
                                 title="Delete">🗑️</button>
@@ -252,10 +257,61 @@ require_once __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
-
 <!-- ═══════════════════════════════════════
-     VIEW ORDER MODAL
+     ADD ORDER MODAL
      ═══════════════════════════════════════ -->
+<div class="modal-backdrop" id="addModal">
+    <div class="modal" style="max-width:500px">
+        <div class="modal-header">
+            <div class="modal-title">＋ Add New Order</div>
+            <button class="modal-close" onclick="closeModal('addModal')">✕</button>
+        </div>
+        <div class="modal-body">
+            <form method="POST" action="orders.php">
+                <input type="hidden" name="action" value="add">
+                <div class="form-grid">
+                    <div class="form-group" style="grid-column:1/-1">
+                        <label class="form-label">Customer Name <span style="color:var(--red)">*</span></label>
+                        <input type="text" name="customer" class="form-input" placeholder="e.g. John Silva" required>
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1">
+                        <label class="form-label">Items Ordered <span style="color:var(--red)">*</span></label>
+                        <input type="text" name="items" class="form-input" placeholder="e.g. Grilled Chicken, Fried Rice" required>
+                        <div style="font-size:.75rem;color:var(--text-3);margin-top:4px">Separate multiple items with commas</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Total (Rs.) <span style="color:var(--red)">*</span></label>
+                        <input type="number" name="total" class="form-input" placeholder="0.00" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Payment Method</label>
+                        <select name="payment" class="form-input">
+                            <option value="Cash">💵 Cash</option>
+                            <option value="Card">💳 Card</option>
+                            <option value="Other">📱 Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="grid-column:1/-1">
+                        <label class="form-label">Status</label>
+                        <select name="status" class="form-input">
+                            <option value="Pending">⏳ Pending</option>
+                            <option value="Confirmed">✔️ Confirmed</option>
+                            <option value="Processing">🍳 Processing</option>
+                            <option value="Delivered">✅ Delivered</option>
+                            <option value="Cancelled">❌ Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('addModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">＋ Add Order</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- VIEW ORDER MODAL -->
 <div class="modal-backdrop" id="viewModal">
     <div class="modal">
         <div class="modal-header">
@@ -266,10 +322,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-     STATUS CHANGE MODAL
-     ═══════════════════════════════════════ -->
+<!-- STATUS CHANGE MODAL -->
 <div class="modal-backdrop" id="statusModal">
     <div class="modal" style="max-width:420px">
         <div class="modal-header">
@@ -285,11 +338,11 @@ require_once __DIR__ . '/../includes/header.php';
                 <input type="hidden" name="item_id" id="status_id">
                 <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
                     <?php foreach([
-                        ['Pending',   '⏳', 'badge-yellow'],
-                        ['Confirmed', '✔️', 'badge-blue'],
-                        ['Preparing', '🍳', 'badge-orange'],
-                        ['Delivered', '✅', 'badge-green'],
-                        ['Cancelled', '❌', 'badge-red'],
+                        ['Pending',    '⏳', 'badge-yellow'],
+                        ['Confirmed',  '✔️', 'badge-blue'],
+                        ['Processing', '🍳', 'badge-blue'],
+                        ['Delivered',  '✅', 'badge-green'],
+                        ['Cancelled',  '❌', 'badge-red'],
                     ] as [$st, $ic, $bc]): ?>
                     <label class="status-option">
                         <input type="radio" name="new_status" value="<?= $st ?>">
@@ -307,10 +360,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-
-<!-- ═══════════════════════════════════════
-     DELETE MODAL
-     ═══════════════════════════════════════ -->
+<!-- DELETE MODAL -->
 <div class="modal-backdrop" id="deleteModal">
     <div class="modal" style="max-width:420px">
         <div class="modal-body" style="text-align:center;padding:32px 28px 24px">
@@ -331,15 +381,11 @@ require_once __DIR__ . '/../includes/header.php';
 
 <div class="toast" id="toast"></div>
 
-
-<!-- ═══════════════════════════════════════
-     STYLES
-     ═══════════════════════════════════════ -->
 <style>
 .flash-msg{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;
     border-radius:var(--radius);margin-bottom:20px;font-size:.85rem;font-weight:600}
-.flash-success{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
-.flash-danger{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
+.flash-success{background:rgba(62,207,142,.1);color:#3ecf8e;border:1px solid #3ecf8e}
+.flash-danger{background:rgba(232,66,66,.1);color:#e84242;border:1px solid #e84242}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;
     display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .modal-backdrop.open{display:flex}
@@ -348,36 +394,36 @@ require_once __DIR__ . '/../includes/header.php';
 @keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(12px)}to{opacity:1;transform:none}}
 .modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0}
 .modal-title{font-family:'DM Serif Display',serif;font-size:1.1rem;font-weight:400}
-.modal-close{background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1.2rem;
-    padding:4px;border-radius:6px}
+.modal-close{background:none;border:none;color:var(--text-3);cursor:pointer;font-size:1.2rem;padding:4px;border-radius:6px}
 .modal-close:hover{color:var(--text)}
 .modal-body{padding:18px 24px 24px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-label{font-size:.78rem;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.04em}
+.form-input{background:var(--bg-3);border:1px solid var(--border-l);color:var(--text);
+    border-radius:var(--radius);padding:9px 13px;font-family:'DM Sans',sans-serif;
+    font-size:.85rem;outline:none;transition:border-color .2s;width:100%}
+.form-input:focus{border-color:var(--accent)}
 .form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;
     padding-top:16px;border-top:1px solid var(--border)}
 .search-input{background:var(--bg-3);border:1px solid var(--border-l);color:var(--text);
     border-radius:var(--radius);padding:8px 13px;font-family:'DM Sans',sans-serif;
     font-size:.83rem;outline:none;transition:border-color .2s}
 .search-input:focus{border-color:var(--accent)}
-.btn-icon{width:32px;height:32px;padding:0;display:inline-flex;align-items:center;
-    justify-content:center;border-radius:8px}
+.btn-icon{width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px}
 .status-option{display:flex;align-items:center;gap:10px;padding:10px 14px;
-    border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;
-    transition:border-color .2s,background .2s}
+    border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:border-color .2s,background .2s}
 .status-option:has(input:checked){border-color:var(--accent);background:rgba(232,98,42,.06)}
 .status-option input{accent-color:var(--accent)}
 .status-icon{font-size:1.1rem}
 </style>
 
-
-<!-- ═══════════════════════════════════════
-     JAVASCRIPT
-     ═══════════════════════════════════════ -->
 <script>
 const ORDERS = <?= $orders_json ?>;
 
-// ── Modals ────────────────────────────────────────────────
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
 document.querySelectorAll('.modal-backdrop').forEach(bd =>
     bd.addEventListener('click', e => { if (e.target === bd) bd.classList.remove('open'); })
 );
@@ -386,12 +432,11 @@ document.addEventListener('keydown', e => {
         document.querySelectorAll('.modal-backdrop.open').forEach(bd => bd.classList.remove('open'));
 });
 
-// ── Button handler ────────────────────────────────────────
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('button');
     if (!btn) return;
     const id = btn.dataset.id;
-    const o  = id ? ORDERS.find(x => x.id === id) : null;
+    const o  = id ? ORDERS.find(x => String(x.id) === String(id)) : null;
 
     // VIEW
     if (btn.classList.contains('btn-view') && o) {
@@ -404,34 +449,32 @@ document.addEventListener('click', function(e) {
         } catch(e) {}
 
         const statusColors = {
-            Pending:'var(--yellow)', Confirmed:'var(--blue)',
-            Preparing:'var(--accent)', Delivered:'var(--green)', Cancelled:'var(--red)'
+            Pending:'#f5c842', Confirmed:'#4e9cf7', Processing:'#4e9cf7',
+            Delivered:'#3ecf8e', Cancelled:'#e84242'
         };
         document.getElementById('viewContent').innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
                 <div>
-                    <div style="font-family:'DM Serif Display',serif;font-size:1.3rem">${o.id}</div>
+                    <div style="font-family:'DM Serif Display',serif;font-size:1.3rem">Order #${o.id}</div>
                     <div style="color:var(--text-3);font-size:.8rem;margin-top:2px">${o.date}</div>
                 </div>
                 <span style="padding:5px 14px;border-radius:20px;font-size:.78rem;font-weight:700;
-                             background:rgba(255,255,255,.06);color:${statusColors[o.status]||'var(--text-2)'}">
+                             background:rgba(255,255,255,.06);color:${statusColors[o.status]||'#aaa'}">
                     ${o.status}
                 </span>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
                 ${vRow('👤','Customer', o.customer)}
                 ${vRow('💳','Payment',  o.payment)}
-                ${vRow('💰','Total',    '$' + Number(o.total).toFixed(2))}
+                ${vRow('💰','Total',    'Rs. ' + Number(o.total).toLocaleString('en-LK', {minimumFractionDigits:2}))}
                 ${vRow('📅','Date',     o.date)}
             </div>
             <div style="background:var(--bg-3);border-radius:var(--radius);padding:14px;margin-bottom:16px">
-                <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;
-                            color:var(--text-3);margin-bottom:8px">🍽️ Items Ordered</div>
+                <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:8px">🍽️ Items Ordered</div>
                 <div style="font-size:.85rem;line-height:1.8">${itemsDisplay || '—'}</div>
             </div>
             <button class="btn btn-primary" style="width:100%"
-                    onclick="closeModal('viewModal');
-                             document.querySelector('.btn-status[data-id=\\'${o.id}\\']').click()">
+                    onclick="closeModal('viewModal');setTimeout(()=>document.querySelector('.btn-status[data-id=\\'${o.id}\\']').click(),100)">
                 🔄 Change Status
             </button>`;
         openModal('viewModal');
@@ -440,30 +483,28 @@ document.addEventListener('click', function(e) {
     // STATUS
     if (btn.classList.contains('btn-status') && o) {
         document.getElementById('status_id').value = o.id;
-        document.getElementById('status_order_id').textContent = o.id + ' — ' + o.customer;
+        document.getElementById('status_order_id').textContent = '#' + o.id + ' — ' + o.customer;
         const radio = document.querySelector(`input[name="new_status"][value="${o.status}"]`);
         if (radio) radio.checked = true;
         openModal('statusModal');
     }
 
     // DELETE
-    if (btn.classList.contains('btn-delete')) {
+    if (btn.classList.contains('btn-delete') && id) {
         document.getElementById('delete_id').value = id;
         document.getElementById('deleteMsg').textContent =
-            'This will permanently delete order "' + id + '". This cannot be undone.';
+            'This will permanently delete order #' + id + '. This cannot be undone.';
         openModal('deleteModal');
     }
 });
 
 function vRow(icon, label, value) {
     return `<div style="background:var(--bg-3);border-radius:var(--radius);padding:12px">
-        <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;
-                    color:var(--text-3);margin-bottom:4px">${icon} ${label}</div>
+        <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:4px">${icon} ${label}</div>
         <div style="font-size:.85rem;font-weight:600">${value}</div>
     </div>`;
 }
 
-// ── Filter ────────────────────────────────────────────────
 function filterOrders() {
     const q   = document.getElementById('searchOrders').value.toLowerCase();
     const st  = document.getElementById('filterStatus').value;
@@ -480,7 +521,6 @@ function filterOrders() {
     document.getElementById('orderCount').textContent = n + ' orders';
 }
 
-// Auto dismiss flash
 const flash = document.getElementById('flashMsg');
 if (flash) setTimeout(() => flash.style.opacity = '0', 4000);
 </script>
