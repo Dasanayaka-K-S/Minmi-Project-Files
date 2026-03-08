@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../includes/auth.php';
 // ============================================================
 //  CUSTOMERS — Minmi Restaurent Admin
 //  Place in: dashboard/pages/customers.php

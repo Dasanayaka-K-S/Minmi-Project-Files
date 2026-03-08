@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../includes/auth.php';
 // ============================================================
 //  MENU MANAGEMENT — Minmi Restaurent Admin
 //  Place in: dashboard/pages/menu.php
