@@ -32,11 +32,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = '⚠️ An account with this email already exists. <a href="login.php" style="color:var(--accent)">Login instead</a>';
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-            $pdo->prepare("INSERT INTO customers (name, email, phone, password, status, joined)
-                           VALUES (?, ?, ?, ?, 'active', CURDATE())")
-                ->execute([$name, $email, $phone, $hashed]);
 
-            $new_id = $pdo->lastInsertId();
+            // Check if id column is auto-increment by seeing if there's a max id
+            $max_id = $pdo->query("SELECT MAX(id) FROM customers")->fetchColumn();
+            $new_id = is_numeric($max_id) ? intval($max_id) + 1 : 1;
+
+            // Try insert with explicit id first (for non-auto-increment tables)
+            try {
+                $pdo->prepare("INSERT INTO customers (id, name, email, phone, password, status, joined)
+                               VALUES (?, ?, ?, ?, ?, 'active', CURDATE())")
+                    ->execute([$new_id, $name, $email, $phone, $hashed]);
+            } catch (PDOException $e) {
+                // If id is auto-increment, insert without id
+                $pdo->prepare("INSERT INTO customers (name, email, phone, password, status, joined)
+                               VALUES (?, ?, ?, ?, 'active', CURDATE())")
+                    ->execute([$name, $email, $phone, $hashed]);
+                $new_id = $pdo->lastInsertId();
+            }
+
             $_SESSION['customer_id']   = $new_id;
             $_SESSION['customer_name'] = $name;
             $_SESSION['customer_email']= $email;
