@@ -3,8 +3,7 @@
    Place in: customer/assets/main.js
    ============================================================ */
 
-// ── Smart Auto-Refresh every 5 seconds ──
-// Skips pages where user is actively interacting
+// ── Smart Auto-Refresh — custom intervals per page ──
 (function () {
     let userActive = false;
 
@@ -18,17 +17,30 @@
         }
     });
 
-    // Pages that should NOT auto-refresh
-    const skipPages = ['cart.php', 'login.php', 'register.php', 'profile.php', 'index.php'];
     const page = window.location.pathname.split('/').pop();
-    if (skipPages.includes(page)) return;
+
+    // Per-page intervals in milliseconds (0 = no refresh)
+    const intervals = {
+        'menu.php':          60000,  // 60 seconds
+        'orders.php':         5000,  // 5 seconds
+        'reservations.php':  25000,  // 25 seconds
+        'cart.php':              0,  // no refresh
+        'login.php':             0,  // no refresh
+        'register.php':          0,  // no refresh
+        'profile.php':           0,  // no refresh
+        'index.php':             0,  // no refresh
+        'feedback.php':          0,  // no refresh
+    };
+
+    const interval = intervals[page] ?? 5000; // default 5s
+    if (interval === 0) return;
 
     setInterval(function () {
         if (!userActive) {
             sessionStorage.setItem('scrollPos', window.scrollY);
             window.location.reload();
         }
-    }, 5000);
+    }, interval);
 
     // Restore scroll position after refresh
     window.addEventListener('load', function () {

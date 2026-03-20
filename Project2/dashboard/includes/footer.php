@@ -31,7 +31,7 @@ $assets_path = $is_subpage ? '../assets' : 'assets';
     const intervals = {
         'dashboard.php':    20000,  // 20 seconds
         'orders.php':        10000,  // 10 seconds
-        'reservations.php':  20000,  // 20 seconds
+        'reservations.php':  15000,  // 15 seconds
         'menu.php':          5000,  // 5 seconds
         'inventory.php':     5000,  // 5 seconds
         'customers.php':    60000,  // 60 seconds
