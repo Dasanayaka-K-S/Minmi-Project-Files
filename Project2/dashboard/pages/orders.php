@@ -17,39 +17,41 @@ try {
 
 // ════════════════════════════════════════
 //  HANDLE POST ACTIONS
+//  ── PRG Pattern: always redirect after POST ──
+//  This prevents duplicate emails when page auto-refreshes
 // ════════════════════════════════════════
-$action   = $_POST['action']  ?? '';
-$item_id  = $_POST['item_id'] ?? '';
-$msg      = '';
-$msg_type = 'success';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action  = $_POST['action']  ?? '';
+    $item_id = $_POST['item_id'] ?? '';
+    $msg     = '';
+    $msg_type = 'success';
 
-// ── ADD NEW ORDER ──
-if ($action === 'add') {
-    $customer       = trim($_POST['customer']       ?? '');
-    $customer_email = trim($_POST['customer_email'] ?? '');
-    $items          = trim($_POST['items']          ?? '');
-    $total          = floatval($_POST['total']      ?? 0);
-    $payment        = $_POST['payment']  ?? 'Cash';
-    $status         = $_POST['status']   ?? 'Pending';
-    $date           = date('Y-m-d');
+    // ── ADD NEW ORDER ──
+    if ($action === 'add') {
+        $customer       = trim($_POST['customer']       ?? '');
+        $customer_email = trim($_POST['customer_email'] ?? '');
+        $items          = trim($_POST['items']          ?? '');
+        $total          = floatval($_POST['total']      ?? 0);
+        $payment        = $_POST['payment']  ?? 'Cash';
+        $status         = $_POST['status']   ?? 'Pending';
+        $date           = date('Y-m-d');
 
-    if ($customer && $items && $total > 0) {
-        $items_arr  = array_map('trim', explode(',', $items));
-        $items_json = json_encode(array_map(fn($i) => ['name' => $i], $items_arr));
+        if ($customer && $items && $total > 0) {
+            $items_arr  = array_map('trim', explode(',', $items));
+            $items_json = json_encode(array_map(fn($i) => ['name' => $i], $items_arr));
 
-        $pdo->prepare("INSERT INTO orders (customer, customer_email, items, total, status, date, payment)
-                       VALUES (?,?,?,?,?,?,?)")
-            ->execute([$customer, $customer_email, $items_json, $total, $status, $date, $payment]);
+            $pdo->prepare("INSERT INTO orders (customer, customer_email, items, total, status, date, payment)
+                           VALUES (?,?,?,?,?,?,?)")
+                ->execute([$customer, $customer_email, $items_json, $total, $status, $date, $payment]);
 
-        $new_order_id = $pdo->lastInsertId();
-        $msg = '✅ Order for "' . htmlspecialchars($customer) . '" added successfully.';
+            $new_order_id = $pdo->lastInsertId();
+            $msg = '✅ Order for "' . htmlspecialchars($customer) . '" added successfully.';
 
-        // ── Send confirmation email if email provided ──
-        if ($customer_email) {
-            $items_display   = implode(', ', $items_arr);
-            $formatted_total = 'Rs. ' . number_format($total, 2);
+            if ($customer_email) {
+                $items_display   = implode(', ', $items_arr);
+                $formatted_total = 'Rs. ' . number_format($total, 2);
 
-            $email_body = "Thank you for your order at Minmi Restaurent! We have received your order and it is currently <strong>{$status}</strong>.
+                $email_body = "Thank you for your order at Minmi Restaurent! We have received your order and it is currently <strong>{$status}</strong>.
 
 <div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
     <div style='font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e8622a;margin-bottom:12px'>🧾 Order Details</div>
@@ -69,69 +71,55 @@ If you have any questions, contact us at <a href='mailto:minmirestaurant@gmail.c
 
 Thank you for choosing Minmi Restaurent! 🔥";
 
-            $mail_result = sendMail(
-                $customer_email,
-                $customer,
-                '🧾 Order Confirmation #' . $new_order_id . ' — Minmi Restaurent',
-                $email_body
-            );
+                $mail_result = sendMail($customer_email, $customer,
+                    '🧾 Order Confirmation #' . $new_order_id . ' — Minmi Restaurent', $email_body);
 
-            if ($mail_result['success']) {
-                $msg .= ' 📧 Confirmation email sent to ' . htmlspecialchars($customer_email) . '.';
-            } else {
-                $msg     .= ' ⚠️ Saved but email failed: ' . htmlspecialchars($mail_result['error'] ?? 'Unknown error');
-                $msg_type = 'warning';
+                if ($mail_result['success']) {
+                    $msg .= ' 📧 Confirmation email sent to ' . htmlspecialchars($customer_email) . '.';
+                } else {
+                    $msg      .= ' ⚠️ Saved but email failed: ' . htmlspecialchars($mail_result['error'] ?? 'Unknown error');
+                    $msg_type  = 'warning';
+                }
             }
+        } else {
+            $msg      = '⚠️ Please fill in all required fields.';
+            $msg_type = 'danger';
         }
-
-    } else {
-        $msg      = '⚠️ Please fill in all required fields.';
-        $msg_type = 'danger';
     }
-}
 
-// ── CHANGE STATUS ──
-if ($action === 'status' && $item_id) {
-    $new_status = $_POST['new_status'] ?? '';
-    $pdo->prepare("UPDATE orders SET status=? WHERE id=?")->execute([$new_status, $item_id]);
-    $msg = '✅ Order #' . htmlspecialchars($item_id) . ' marked as ' . htmlspecialchars($new_status) . '.';
+    // ── CHANGE STATUS ──
+    if ($action === 'status' && $item_id) {
+        $new_status = $_POST['new_status'] ?? '';
+        $pdo->prepare("UPDATE orders SET status=? WHERE id=?")->execute([$new_status, $item_id]);
+        $msg = '✅ Order #' . htmlspecialchars($item_id) . ' marked as ' . htmlspecialchars($new_status) . '.';
 
-    // ── Fetch order and send status email ──
-    $ord_row = $pdo->prepare("SELECT * FROM orders WHERE id=?");
-    $ord_row->execute([$item_id]);
-    $updated_order = $ord_row->fetch();
+        $ord_row = $pdo->prepare("SELECT * FROM orders WHERE id=?");
+        $ord_row->execute([$item_id]);
+        $updated_order = $ord_row->fetch();
 
-    if ($updated_order && !empty($updated_order['customer_email'])) {
-        $items_display = $updated_order['items'] ?? '';
-        $decoded = json_decode($items_display, true);
-        if (is_array($decoded)) {
-            $items_display = implode(', ', array_map(
-                fn($i) => is_array($i) ? ($i['name'] ?? '') : (string)$i,
-                $decoded
-            ));
-        }
+        if ($updated_order && !empty($updated_order['customer_email'])) {
+            $items_display = $updated_order['items'] ?? '';
+            $decoded = json_decode($items_display, true);
+            if (is_array($decoded)) {
+                $items_display = implode(', ', array_map(
+                    fn($i) => is_array($i) ? ($i['name'] ?? '') : (string)$i, $decoded
+                ));
+            }
 
-        $formatted_total = 'Rs. ' . number_format($updated_order['total'], 2);
+            $formatted_total = 'Rs. ' . number_format($updated_order['total'], 2);
+            $status_colors   = ['Pending'=>'#f5c842','Confirmed'=>'#4e9cf7','Processing'=>'#4e9cf7','Delivered'=>'#3ecf8e','Cancelled'=>'#e84242'];
+            $status_color    = $status_colors[$new_status] ?? '#888';
 
-        $status_colors = [
-            'Pending'    => '#f5c842',
-            'Confirmed'  => '#4e9cf7',
-            'Processing' => '#4e9cf7',
-            'Delivered'  => '#3ecf8e',
-            'Cancelled'  => '#e84242',
-        ];
-        $status_color = $status_colors[$new_status] ?? '#888';
+            $status_messages = [
+                'Confirmed'  => 'Great news! Your order has been <strong style="color:#4e9cf7">confirmed</strong> by our team. We\'re getting ready to prepare it!',
+                'Processing' => 'Your order is now <strong style="color:#4e9cf7">being prepared</strong> in our kitchen. It won\'t be long now! 🍳',
+                'Delivered'  => 'Your order has been <strong style="color:#3ecf8e">delivered</strong>. We hope you enjoy your meal! Bon appétit! 🌟',
+                'Cancelled'  => 'Unfortunately, your order has been <strong style="color:#e84242">cancelled</strong>. If this was unexpected, please contact us to reorder.',
+                'Pending'    => 'Your order status has been updated to <strong>Pending</strong>. Our team will confirm it shortly.',
+            ];
+            $status_msg = $status_messages[$new_status] ?? "Your order status has been updated to <strong>{$new_status}</strong>.";
 
-        $status_messages = [
-            'Confirmed'  => 'Great news! Your order has been <strong style="color:#4e9cf7">confirmed</strong> by our team. We\'re getting ready to prepare it!',
-            'Processing' => 'Your order is now <strong style="color:#4e9cf7">being prepared</strong> in our kitchen. It won\'t be long now! 🍳',
-            'Delivered'  => 'Your order has been <strong style="color:#3ecf8e">delivered</strong>. We hope you enjoy your meal! Bon appétit! 🌟',
-            'Cancelled'  => 'Unfortunately, your order has been <strong style="color:#e84242">cancelled</strong>. If this was unexpected, please contact us to reorder.',
-            'Pending'    => 'Your order status has been updated to <strong>Pending</strong>. Our team will confirm it shortly.',
-        ];
-        $status_msg = $status_messages[$new_status] ?? "Your order status has been updated to <strong>{$new_status}</strong>.";
-
-        $update_body = "{$status_msg}
+            $update_body = "{$status_msg}
 
 <div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
     <div style='font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e8622a;margin-bottom:12px'>🧾 Your Order</div>
@@ -146,36 +134,45 @@ if ($action === 'status' && $item_id) {
 
 For any questions, contact us at <a href='mailto:minmirestaurant@gmail.com' style='color:#e8622a'>minmirestaurant@gmail.com</a>.";
 
-        $subject_map = [
-            'Confirmed'  => '✅ Order Confirmed — Minmi Restaurent',
-            'Processing' => '🍳 Your Order is Being Prepared — Minmi Restaurent',
-            'Delivered'  => '🌟 Order Delivered — Thank You! — Minmi Restaurent',
-            'Cancelled'  => '❌ Order Cancelled — Minmi Restaurent',
-            'Pending'    => '⏳ Order Update — Minmi Restaurent',
-        ];
-        $subject = ($subject_map[$new_status] ?? '🔄 Order Update — Minmi Restaurent') . ' #' . $item_id;
+            $subject_map = [
+                'Confirmed'  => '✅ Order Confirmed — Minmi Restaurent',
+                'Processing' => '🍳 Your Order is Being Prepared — Minmi Restaurent',
+                'Delivered'  => '🌟 Order Delivered — Thank You! — Minmi Restaurent',
+                'Cancelled'  => '❌ Order Cancelled — Minmi Restaurent',
+                'Pending'    => '⏳ Order Update — Minmi Restaurent',
+            ];
+            $subject = ($subject_map[$new_status] ?? '🔄 Order Update — Minmi Restaurent') . ' #' . $item_id;
 
-        $mail_result = sendMail(
-            $updated_order['customer_email'],
-            $updated_order['customer'],
-            $subject,
-            $update_body
-        );
+            $mail_result = sendMail($updated_order['customer_email'], $updated_order['customer'], $subject, $update_body);
 
-        if ($mail_result['success']) {
-            $msg .= ' 📧 Status email sent to ' . htmlspecialchars($updated_order['customer_email']) . '.';
-        } else {
-            $msg .= ' ⚠️ Status updated but email failed.';
+            if ($mail_result['success']) {
+                $msg .= ' 📧 Status email sent to ' . htmlspecialchars($updated_order['customer_email']) . '.';
+            } else {
+                $msg .= ' ⚠️ Status updated but email failed.';
+            }
         }
     }
+
+    // ── DELETE ──
+    if ($action === 'delete' && $item_id) {
+        $pdo->prepare("DELETE FROM orders WHERE id=?")->execute([$item_id]);
+        $msg      = '🗑️ Order #' . htmlspecialchars($item_id) . ' deleted.';
+        $msg_type = 'danger';
+    }
+
+    // ── PRG: Store message in session then redirect to GET ──
+    // This is the key fix — after any POST action, we redirect to GET
+    // So auto-refresh will never re-trigger the POST and resend emails
+    $_SESSION['admin_flash']      = $msg;
+    $_SESSION['admin_flash_type'] = $msg_type;
+    header('Location: orders.php');
+    exit;
 }
 
-// ── DELETE ──
-if ($action === 'delete' && $item_id) {
-    $pdo->prepare("DELETE FROM orders WHERE id=?")->execute([$item_id]);
-    $msg      = '🗑️ Order #' . htmlspecialchars($item_id) . ' deleted.';
-    $msg_type = 'danger';
-}
+// ── Read flash message from session (set by POST redirect above) ──
+$msg      = $_SESSION['admin_flash']      ?? '';
+$msg_type = $_SESSION['admin_flash_type'] ?? 'success';
+unset($_SESSION['admin_flash'], $_SESSION['admin_flash_type']);
 
 // ════════════════════════════════════════
 //  FETCH DATA
@@ -191,7 +188,6 @@ $total_revenue  = array_sum(array_column(
     array_filter($orders, fn($o) => $o['status'] === 'Delivered'), 'total'
 ));
 
-// Daily chart last 7 days
 $daily = [];
 for ($i = 6; $i >= 0; $i--) {
     $d     = date('Y-m-d', strtotime("-{$i} days"));
@@ -208,14 +204,7 @@ $page_title   = 'Orders';
 $page_scripts = "buildBarChart('dailyOrdersChart', {$daily_labels}, {$daily_vals}, '#4e9cf7');";
 
 function orderBadge(string $status): string {
-    $map = [
-        'Pending'    => 'badge-yellow',
-        'Confirmed'  => 'badge-blue',
-        'Processing' => 'badge-blue',
-        'Preparing'  => 'badge-orange',
-        'Delivered'  => 'badge-green',
-        'Cancelled'  => 'badge-red',
-    ];
+    $map = ['Pending'=>'badge-yellow','Confirmed'=>'badge-blue','Processing'=>'badge-blue','Preparing'=>'badge-orange','Delivered'=>'badge-green','Cancelled'=>'badge-red'];
     return '<span class="badge ' . ($map[$status] ?? 'badge-gray') . '">' . htmlspecialchars($status) . '</span>';
 }
 
@@ -329,9 +318,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <td>
                     <strong><?= htmlspecialchars($o['customer']) ?></strong>
                     <?php if ($has_email): ?>
-                    <div style="color:var(--text-3);font-size:.74rem;margin-top:2px">
-                        📧 <?= htmlspecialchars($o['customer_email']) ?>
-                    </div>
+                    <div style="color:var(--text-3);font-size:.74rem;margin-top:2px">📧 <?= htmlspecialchars($o['customer_email']) ?></div>
                     <?php else: ?>
                     <div style="color:var(--text-3);font-size:.72rem;margin-top:2px;font-style:italic;opacity:.6">no email</div>
                     <?php endif; ?>
@@ -344,8 +331,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <td>
                     <?php
                     $pay = strtolower($o['payment']);
-                    if ($pay === 'card')       echo '<span class="badge badge-blue">💳 Card</span>';
-                    elseif ($pay === 'cash')   echo '<span class="badge badge-gray">💵 Cash</span>';
+                    if ($pay === 'card')     echo '<span class="badge badge-blue">💳 Card</span>';
+                    elseif ($pay === 'cash') echo '<span class="badge badge-gray">💵 Cash</span>';
                     else echo '<span class="badge badge-gray">📱 ' . htmlspecialchars($o['payment']) . '</span>';
                     ?>
                 </td>
@@ -386,16 +373,12 @@ require_once __DIR__ . '/../includes/header.php';
                         <input type="text" name="customer" class="form-input" placeholder="e.g. John Silva" required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">
-                            Customer Email
-                            <span style="color:#3ecf8e;font-size:.68rem;font-weight:400;text-transform:none;letter-spacing:0"> — updates will be sent</span>
-                        </label>
+                        <label class="form-label">Customer Email <span style="color:#3ecf8e;font-size:.68rem;font-weight:400;text-transform:none"> — updates will be sent</span></label>
                         <input type="email" name="customer_email" class="form-input" placeholder="customer@email.com">
                     </div>
                     <div class="form-group" style="grid-column:1/-1">
                         <label class="form-label">Items Ordered <span style="color:#e84242">*</span></label>
-                        <input type="text" name="items" class="form-input"
-                               placeholder="e.g. Grilled Chicken, Fried Rice, Mango Juice" required>
+                        <input type="text" name="items" class="form-input" placeholder="e.g. Grilled Chicken, Fried Rice" required>
                         <div style="font-size:.75rem;color:var(--text-3);margin-top:4px">Separate multiple items with commas</div>
                     </div>
                     <div class="form-group">
@@ -452,9 +435,7 @@ require_once __DIR__ . '/../includes/header.php';
             <button class="modal-close" onclick="closeModal('statusModal')">✕</button>
         </div>
         <div class="modal-body">
-            <p style="color:var(--text-2);font-size:.85rem;margin-bottom:16px">
-                Order: <strong id="status_order_id"></strong>
-            </p>
+            <p style="color:var(--text-2);font-size:.85rem;margin-bottom:16px">Order: <strong id="status_order_id"></strong></p>
             <form method="POST" action="orders.php">
                 <input type="hidden" name="action"  value="status">
                 <input type="hidden" name="item_id" id="status_id">
@@ -554,7 +535,6 @@ document.addEventListener('click', function(e) {
     const id = btn.dataset.id;
     const o  = id ? ORDERS.find(x => String(x.id) === String(id)) : null;
 
-    // ── VIEW ──
     if (btn.classList.contains('btn-view') && o) {
         let itemsDisplay = o.items || '';
         try {
@@ -565,8 +545,8 @@ document.addEventListener('click', function(e) {
 
         const statusColors = {Pending:'#f5c842',Confirmed:'#4e9cf7',Processing:'#4e9cf7',Delivered:'#3ecf8e',Cancelled:'#e84242'};
         const emailRow = o.customer_email
-            ? vRow('📧', 'Email', o.customer_email)
-            : vRow('📧', 'Email', '<span style="color:var(--text-3);font-style:italic">not provided</span>');
+            ? vRow('📧','Email', o.customer_email)
+            : vRow('📧','Email','<span style="color:var(--text-3);font-style:italic">not provided</span>');
 
         document.getElementById('viewContent').innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -579,7 +559,7 @@ document.addEventListener('click', function(e) {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
                 ${vRow('👤','Customer', o.customer)}
                 ${vRow('💳','Payment',  o.payment)}
-                ${vRow('💰','Total',    'Rs. ' + Number(o.total).toLocaleString('en-LK', {minimumFractionDigits:2}))}
+                ${vRow('💰','Total', 'Rs. ' + Number(o.total).toLocaleString('en-LK',{minimumFractionDigits:2}))}
                 ${emailRow}
             </div>
             <div style="background:var(--bg-3);border-radius:var(--radius);padding:14px;margin-bottom:16px">
@@ -593,7 +573,6 @@ document.addEventListener('click', function(e) {
         openModal('viewModal');
     }
 
-    // ── STATUS ──
     if (btn.classList.contains('btn-status') && o) {
         document.getElementById('status_id').value = o.id;
         document.getElementById('status_order_id').textContent = '#' + o.id + ' — ' + o.customer;
@@ -602,11 +581,9 @@ document.addEventListener('click', function(e) {
         openModal('statusModal');
     }
 
-    // ── DELETE ──
     if (btn.classList.contains('btn-delete') && id) {
         document.getElementById('delete_id').value = id;
-        document.getElementById('deleteMsg').textContent =
-            'This will permanently delete order #' + id + '. This cannot be undone.';
+        document.getElementById('deleteMsg').textContent = 'This will permanently delete order #' + id + '. This cannot be undone.';
         openModal('deleteModal');
     }
 });

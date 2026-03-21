@@ -32,13 +32,15 @@
         'feedback.php':          0,  // no refresh
     };
 
-    const interval = intervals[page] ?? 5000; // default 5s
+    const interval = intervals[page] ?? 5000;
     if (interval === 0) return;
 
     setInterval(function () {
         if (!userActive) {
             sessionStorage.setItem('scrollPos', window.scrollY);
-            window.location.reload();
+            // ── Use GET redirect instead of reload ──
+            // This prevents POST resubmission (duplicate reservations/orders)
+            window.location.href = window.location.pathname + window.location.search;
         }
     }, interval);
 

@@ -8,37 +8,44 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/mailer.php';
 
-$action   = $_POST['action']  ?? '';
-$item_id  = $_POST['item_id'] ?? '';
-$msg      = '';
-$msg_type = 'success';
+// ── Auto-add email_sent_status column if not exists ──
+// This column tracks the last status for which email was sent
+// preventing duplicate emails on page refresh
+try { $pdo->query("SELECT email_sent_status FROM reservations LIMIT 1"); }
+catch (PDOException $e) {
+    $pdo->exec("ALTER TABLE reservations ADD COLUMN email_sent_status VARCHAR(20) DEFAULT '' AFTER status");
+}
 
 // ════════════════════════════════════════
-//  ACTIONS
+//  HANDLE POST ACTIONS — PRG Pattern
 // ════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action  = $_POST['action']  ?? '';
+    $item_id = $_POST['item_id'] ?? '';
+    $msg     = '';
+    $msg_type = 'success';
 
-if ($action === 'add') {
-    $new_id     = 'RES-' . strtoupper(substr(uniqid(), -6));
-    $cust_name  = trim($_POST['customer_name']);
-    $cust_email = trim($_POST['email']  ?? '');
-    $cust_phone = trim($_POST['phone']  ?? '');
-    $res_date   = $_POST['date'];
-    $res_time   = $_POST['time'];
-    $res_status = $_POST['status'] ?? 'Pending';
-    $res_notes  = trim($_POST['notes'] ?? '');
+    if ($action === 'add') {
+        $new_id     = 'RES-' . strtoupper(substr(uniqid(), -6));
+        $cust_name  = trim($_POST['customer_name']);
+        $cust_email = trim($_POST['email']  ?? '');
+        $cust_phone = trim($_POST['phone']  ?? '');
+        $res_date   = $_POST['date'];
+        $res_time   = $_POST['time'];
+        $res_status = $_POST['status'] ?? 'Pending';
+        $res_notes  = trim($_POST['notes'] ?? '');
 
-    $pdo->prepare("INSERT INTO reservations (id, customer_name, email, phone, date, time, status, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        ->execute([$new_id, $cust_name, $cust_email, $cust_phone, $res_date, $res_time, $res_status, $res_notes]);
+        $pdo->prepare("INSERT INTO reservations (id, customer_name, email, phone, date, time, status, notes)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            ->execute([$new_id, $cust_name, $cust_email, $cust_phone, $res_date, $res_time, $res_status, $res_notes]);
 
-    $msg = '✅ Reservation for "' . htmlspecialchars($cust_name) . '" added!';
+        $msg = '✅ Reservation for "' . htmlspecialchars($cust_name) . '" added!';
 
-    // ── Send confirmation email if customer email provided ──
-    if ($cust_email) {
-        $formatted_date = date('l, d F Y', strtotime($res_date));
-        $formatted_time = date('g:i A',    strtotime($res_time));
+        if ($cust_email) {
+            $formatted_date = date('l, d F Y', strtotime($res_date));
+            $formatted_time = date('g:i A',    strtotime($res_time));
 
-        $email_body = "Thank you for choosing Minmi Restaurent! Your table reservation has been received and is currently <strong>{$res_status}</strong>.
+            $email_body = "Thank you for choosing Minmi Restaurent! Your table reservation has been received and is currently <strong>{$res_status}</strong>.
 
 <div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
     <div style='font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e8622a;margin-bottom:12px'>📋 Reservation Details</div>
@@ -51,85 +58,85 @@ if ($action === 'add') {
         " . ($res_notes  ? "<tr><td style='color:#888'>Notes</td><td>{$res_notes}</td></tr>"  : "") . "
     </table>
 </div>
-
 Our team will confirm your booking shortly. If you have any questions, please contact us at
 <a href='mailto:minmirestaurant@gmail.com' style='color:#e8622a'>minmirestaurant@gmail.com</a>.
-
 We look forward to serving you! 🔥";
 
-        $mail_result = sendMail(
-            $cust_email,
-            $cust_name,
-            '🍽️ Reservation Confirmation — Minmi Restaurent',
-            $email_body
-        );
+            $mail_result = sendMail($cust_email, $cust_name,
+                '🍽️ Reservation Confirmation — Minmi Restaurent', $email_body);
 
-        if ($mail_result['success']) {
-            $msg .= ' 📧 Confirmation email sent to ' . htmlspecialchars($cust_email) . '.';
-        } else {
-            $msg      .= ' ⚠️ Saved but email failed: ' . htmlspecialchars($mail_result['error'] ?? 'Unknown error');
-            $msg_type  = 'warning';
+            if ($mail_result['success']) {
+                $msg .= ' 📧 Confirmation email sent to ' . htmlspecialchars($cust_email) . '.';
+                // Mark email as sent for this status
+                $pdo->prepare("UPDATE reservations SET email_sent_status=? WHERE id=?")
+                    ->execute([$res_status, $new_id]);
+            } else {
+                $msg     .= ' ⚠️ Saved but email failed: ' . htmlspecialchars($mail_result['error'] ?? 'Unknown error');
+                $msg_type = 'warning';
+            }
         }
     }
-}
 
-if ($action === 'edit' && $item_id) {
-    $pdo->prepare("UPDATE reservations SET customer_name=?, email=?, phone=?, date=?, time=?, status=?, notes=? WHERE id=?")
-        ->execute([
-            trim($_POST['customer_name']),
-            trim($_POST['email']  ?? ''),
-            trim($_POST['phone']  ?? ''),
-            $_POST['date'],
-            $_POST['time'],
-            $_POST['status'],
-            trim($_POST['notes'] ?? ''),
-            $item_id,
-        ]);
-    $msg = '✅ Reservation for "' . htmlspecialchars($_POST['customer_name']) . '" updated!';
-}
+    if ($action === 'edit' && $item_id) {
+        $pdo->prepare("UPDATE reservations SET customer_name=?, email=?, phone=?, date=?, time=?, status=?, notes=? WHERE id=?")
+            ->execute([
+                trim($_POST['customer_name']),
+                trim($_POST['email']  ?? ''),
+                trim($_POST['phone']  ?? ''),
+                $_POST['date'],
+                $_POST['time'],
+                $_POST['status'],
+                trim($_POST['notes'] ?? ''),
+                $item_id,
+            ]);
+        $msg = '✅ Reservation for "' . htmlspecialchars($_POST['customer_name']) . '" updated!';
+    }
 
-if ($action === 'delete' && $item_id) {
-    $row = $pdo->prepare("SELECT customer_name FROM reservations WHERE id=?");
-    $row->execute([$item_id]);
-    $del_name = $row->fetchColumn() ?: $item_id;
-    $pdo->prepare("DELETE FROM reservations WHERE id=?")->execute([$item_id]);
-    $msg      = '🗑️ Reservation for "' . htmlspecialchars($del_name) . '" deleted.';
-    $msg_type = 'danger';
-}
+    if ($action === 'delete' && $item_id) {
+        $row = $pdo->prepare("SELECT customer_name FROM reservations WHERE id=?");
+        $row->execute([$item_id]);
+        $del_name = $row->fetchColumn() ?: $item_id;
+        $pdo->prepare("DELETE FROM reservations WHERE id=?")->execute([$item_id]);
+        $msg      = '🗑️ Reservation for "' . htmlspecialchars($del_name) . '" deleted.';
+        $msg_type = 'danger';
+    }
 
-if ($action === 'status' && $item_id) {
-    $new_status = $_POST['new_status'] ?? '';
-    $pdo->prepare("UPDATE reservations SET status=? WHERE id=?")->execute([$new_status, $item_id]);
-    $msg = '✅ Reservation marked as ' . htmlspecialchars($new_status) . '.';
+    if ($action === 'status' && $item_id) {
+        $new_status = $_POST['new_status'] ?? '';
 
-    // ── Send status update email ──
-    $res_row = $pdo->prepare("SELECT * FROM reservations WHERE id=?");
-    $res_row->execute([$item_id]);
-    $updated_res = $res_row->fetch();
+        // ── Email lock: only send if this status hasn't been emailed yet ──
+        $lock_check = $pdo->prepare("SELECT email_sent_status, email FROM reservations WHERE id=?");
+        $lock_check->execute([$item_id]);
+        $lock_row = $lock_check->fetch();
 
-    if ($updated_res && !empty($updated_res['email'])) {
-        $formatted_date = date('l, d F Y', strtotime($updated_res['date']));
-        $formatted_time = date('g:i A',    strtotime($updated_res['time']));
+        $pdo->prepare("UPDATE reservations SET status=? WHERE id=?")->execute([$new_status, $item_id]);
+        $msg = '✅ Reservation marked as ' . htmlspecialchars($new_status) . '.';
 
-        $status_colors = [
-            'Confirmed' => '#3ecf8e',
-            'Seated'    => '#e8622a',
-            'Completed' => '#3ecf8e',
-            'Cancelled' => '#e84242',
-            'Pending'   => '#f5c842',
-        ];
-        $status_color = $status_colors[$new_status] ?? '#888';
+        // Only send email if:
+        // 1. Customer has an email
+        // 2. This status hasn't been emailed before for this reservation
+        if ($lock_row && !empty($lock_row['email']) && $lock_row['email_sent_status'] !== $new_status) {
 
-        $status_messages = [
-            'Confirmed' => 'Great news! Your reservation has been <strong style="color:#3ecf8e">confirmed</strong>. We look forward to welcoming you!',
-            'Seated'    => 'You are now <strong style="color:#e8622a">seated</strong> at Minmi Restaurent. Enjoy your dining experience! 🍽️',
-            'Completed' => 'Thank you for dining with us! We hope you had a wonderful experience. See you again soon! 🌟',
-            'Cancelled' => 'Your reservation has been <strong style="color:#e84242">cancelled</strong>. If this was a mistake, please contact us to rebook.',
-            'Pending'   => 'Your reservation status has been updated to <strong>Pending</strong>. We will confirm your booking shortly.',
-        ];
-        $status_msg = $status_messages[$new_status] ?? "Your reservation status has been updated to <strong>{$new_status}</strong>.";
+            $res_row = $pdo->prepare("SELECT * FROM reservations WHERE id=?");
+            $res_row->execute([$item_id]);
+            $updated_res = $res_row->fetch();
 
-        $update_body = "{$status_msg}
+            $formatted_date = date('l, d F Y', strtotime($updated_res['date']));
+            $formatted_time = date('g:i A',    strtotime($updated_res['time']));
+
+            $status_colors   = ['Confirmed'=>'#3ecf8e','Seated'=>'#e8622a','Completed'=>'#3ecf8e','Cancelled'=>'#e84242','Pending'=>'#f5c842'];
+            $status_color    = $status_colors[$new_status] ?? '#888';
+
+            $status_messages = [
+                'Confirmed' => 'Great news! Your reservation has been <strong style="color:#3ecf8e">confirmed</strong>. We look forward to welcoming you!',
+                'Seated'    => 'You are now <strong style="color:#e8622a">seated</strong> at Minmi Restaurent. Enjoy your dining experience! 🍽️',
+                'Completed' => 'Thank you for dining with us! We hope you had a wonderful experience. See you again soon! 🌟',
+                'Cancelled' => 'Your reservation has been <strong style="color:#e84242">cancelled</strong>. If this was a mistake, please contact us to rebook.',
+                'Pending'   => 'Your reservation status has been updated to <strong>Pending</strong>. We will confirm your booking shortly.',
+            ];
+            $status_msg = $status_messages[$new_status] ?? "Your reservation status has been updated to <strong>{$new_status}</strong>.";
+
+            $update_body = "{$status_msg}
 
 <div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
     <div style='font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#e8622a;margin-bottom:12px'>📋 Your Reservation</div>
@@ -140,33 +147,45 @@ if ($action === 'status' && $item_id) {
         <tr><td style='color:#888'>Status</td><td><span style='color:{$status_color};font-weight:700'>{$new_status}</span></td></tr>
     </table>
 </div>
-
 For any questions, contact us at
 <a href='mailto:minmirestaurant@gmail.com' style='color:#e8622a'>minmirestaurant@gmail.com</a>.";
 
-        $subject_map = [
-            'Confirmed' => '✅ Reservation Confirmed — Minmi Restaurent',
-            'Cancelled' => '❌ Reservation Cancelled — Minmi Restaurent',
-            'Completed' => '🌟 Thank You for Dining — Minmi Restaurent',
-            'Seated'    => '🪑 You Are Now Seated — Minmi Restaurent',
-            'Pending'   => '⏳ Reservation Update — Minmi Restaurent',
-        ];
-        $subject = $subject_map[$new_status] ?? '🔄 Reservation Update — Minmi Restaurent';
+            $subject_map = [
+                'Confirmed' => '✅ Reservation Confirmed — Minmi Restaurent',
+                'Cancelled' => '❌ Reservation Cancelled — Minmi Restaurent',
+                'Completed' => '🌟 Thank You for Dining — Minmi Restaurent',
+                'Seated'    => '🪑 You Are Now Seated — Minmi Restaurent',
+                'Pending'   => '⏳ Reservation Update — Minmi Restaurent',
+            ];
+            $subject = $subject_map[$new_status] ?? '🔄 Reservation Update — Minmi Restaurent';
 
-        $mail_result = sendMail(
-            $updated_res['email'],
-            $updated_res['customer_name'],
-            $subject,
-            $update_body
-        );
+            $mail_result = sendMail($updated_res['email'], $updated_res['customer_name'], $subject, $update_body);
 
-        if ($mail_result['success']) {
-            $msg .= ' 📧 Status email sent to ' . htmlspecialchars($updated_res['email']) . '.';
-        } else {
-            $msg .= ' ⚠️ Status updated but email failed.';
+            if ($mail_result['success']) {
+                $msg .= ' 📧 Status email sent to ' . htmlspecialchars($updated_res['email']) . '.';
+                // ── Mark this status as emailed so it won't send again ──
+                $pdo->prepare("UPDATE reservations SET email_sent_status=? WHERE id=?")
+                    ->execute([$new_status, $item_id]);
+            } else {
+                $msg .= ' ⚠️ Status updated but email failed.';
+            }
+
+        } elseif (!empty($lock_row['email']) && $lock_row['email_sent_status'] === $new_status) {
+            $msg .= ' ℹ️ Email already sent for this status.';
         }
     }
+
+    // ── PRG: redirect to GET after every POST ──
+    $_SESSION['admin_flash']      = $msg;
+    $_SESSION['admin_flash_type'] = $msg_type;
+    header('Location: reservations.php');
+    exit;
 }
+
+// ── Read flash from session ──
+$msg      = $_SESSION['admin_flash']      ?? '';
+$msg_type = $_SESSION['admin_flash_type'] ?? 'success';
+unset($_SESSION['admin_flash'], $_SESSION['admin_flash_type']);
 
 // ════════════════════════════════════════
 //  FETCH DATA
@@ -327,10 +346,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <input class="form-input" type="text" name="customer_name" placeholder="e.g. John Smith" required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">
-                            Email
-                            <span style="color:#3ecf8e;font-size:.68rem;font-weight:400;text-transform:none;letter-spacing:0"> — confirmation will be sent</span>
-                        </label>
+                        <label class="form-label">Email <span style="color:#3ecf8e;font-size:.68rem;font-weight:400;text-transform:none"> — confirmation will be sent</span></label>
                         <input class="form-input" type="email" name="email" placeholder="customer@email.com">
                     </div>
                     <div class="form-group">

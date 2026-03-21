@@ -26,28 +26,29 @@ $assets_path = $is_subpage ? '../assets' : 'assets';
 
     const page = window.location.pathname.split('/').pop();
 
-    // Per-page refresh intervals (in milliseconds)
-    // 0 = no refresh
     const intervals = {
-        'dashboard.php':    20000,  // 20 seconds
-        'orders.php':        10000,  // 10 seconds
-        'reservations.php':  15000,  // 15 seconds
-        'menu.php':          5000,  // 5 seconds
-        'inventory.php':     5000,  // 5 seconds
-        'customers.php':    60000,  // 60 seconds
-        'reports.php':      20000,  // 20 seconds
-        'staff.php':            0,  // no refresh
-        'settings.php':         0,  // no refresh
-        'login.php':            0,  // no refresh
+        'dashboard.php':    20000,
+        'orders.php':       10000,
+        'reservations.php': 15000,
+        'menu.php':          5000,
+        'inventory.php':     5000,
+        'customers.php':    60000,
+        'reports.php':      20000,
+        'staff.php':            0,
+        'settings.php':         0,
+        'login.php':            0,
     };
 
-    const interval = intervals[page] ?? 5000; // default 5s for any unlisted page
-    if (interval === 0) return; // skip pages with no refresh
+    const interval = intervals[page] ?? 5000;
+    if (interval === 0) return;
 
     setInterval(function() {
         if (!userActive) {
             sessionStorage.setItem('adminScrollPos', window.scrollY);
-            window.location.reload();
+            // ── Use GET-only redirect to prevent POST resubmission ──
+            // This ensures the refresh never re-triggers a form POST
+            // which would cause duplicate emails to be sent
+            window.location.href = window.location.pathname + window.location.search;
         }
     }, interval);
 

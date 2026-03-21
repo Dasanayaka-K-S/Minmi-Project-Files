@@ -7,63 +7,59 @@ require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
 
 $customer_id = $_SESSION['customer_id'];
-$msg = ''; $msg_type = 'success';
 
-// ── Add Reservation ──
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add') {
-    $date  = $_POST['date']  ?? '';
-    $time  = $_POST['time']  ?? '';
-    $notes = trim($_POST['notes'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
+// ── POST ACTIONS — PRG pattern to prevent resubmission on refresh ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    $msg = ''; $msg_type = 'success';
 
-    if (!$date || !$time) {
-        $msg = '⚠️ Please select a date and time.'; $msg_type = 'warning';
-    } elseif ($date < date('Y-m-d')) {
-        $msg = '⚠️ Please select a future date.'; $msg_type = 'warning';
-    } else {
-        $new_id = 'RES-' . strtoupper(substr(uniqid(), -6));
-        $pdo->prepare("INSERT INTO reservations (id, customer_name, email, phone, date, time, status, notes)
-                       VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?)")
-            ->execute([$new_id, $_SESSION['customer_name'], $_SESSION['customer_email'], $phone, $date, $time, $notes]);
+    // ── Add Reservation ──
+    if ($action === 'add') {
+        $date  = $_POST['date']  ?? '';
+        $time  = $_POST['time']  ?? '';
+        $notes = trim($_POST['notes'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
 
-        // Send confirmation email
-        $mailer_path = __DIR__ . '/../dashboard/includes/mailer.php';
-        if (file_exists($mailer_path)) {
-            require_once $mailer_path;
-            $body = "Your table reservation at Minmi Restaurent has been received and is currently <strong>Pending</strong>.
+        if (!$date || !$time) {
+            $msg = '⚠️ Please select a date and time.'; $msg_type = 'warning';
+        } elseif ($date < date('Y-m-d')) {
+            $msg = '⚠️ Please select a future date.'; $msg_type = 'warning';
+        } else {
+            $new_id = 'RES-' . strtoupper(substr(uniqid(), -6));
+            $pdo->prepare("INSERT INTO reservations (id, customer_name, email, phone, date, time, status, notes)
+                           VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?)")
+                ->execute([$new_id, $_SESSION['customer_name'], $_SESSION['customer_email'], $phone, $date, $time, $notes]);
 
-<div style='background:#fff8f5;border-left:4px solid #e8622a;border-radius:0 8px 8px 0;padding:18px 20px;margin:20px 0'>
-    <table width='100%' cellpadding='6' cellspacing='0' style='font-size:.9rem;color:#333'>
-        <tr><td style='color:#888;width:40%'>Reservation ID</td><td><strong>{$new_id}</strong></td></tr>
-        <tr><td style='color:#888'>Date</td><td><strong>" . date('l, d F Y', strtotime($date)) . "</strong></td></tr>
-        <tr><td style='color:#888'>Time</td><td><strong>" . date('g:i A', strtotime($time)) . "</strong></td></tr>
-        <tr><td style='color:#888'>Status</td><td><span style='color:#f5c842;font-weight:700'>Pending</span></td></tr>
-        " . ($phone ? "<tr><td style='color:#888'>Phone</td><td>{$phone}</td></tr>" : "") . "
-        " . ($notes ? "<tr><td style='color:#888'>Notes</td><td>" . htmlspecialchars($notes) . "</td></tr>" : "") . "
-    </table>
-</div>
-Our team will confirm your booking shortly. We look forward to welcoming you! 🔥";
-            sendMail($_SESSION['customer_email'], $_SESSION['customer_name'],
-                '📅 Reservation Confirmation — Minmi Restaurent', $body);
+            $msg = '✅ Reservation booked! ID: ' . $new_id . '. We will confirm it shortly.';
         }
-
-        $msg = '✅ Reservation booked! ID: ' . $new_id . '. We will confirm it shortly.';
     }
+
+    // ── Cancel Reservation ──
+    if ($action === 'cancel') {
+        $res_id = $_POST['res_id'] ?? '';
+        $check  = $pdo->prepare("SELECT * FROM reservations WHERE id=? AND email=?");
+        $check->execute([$res_id, $_SESSION['customer_email']]);
+        $res = $check->fetch();
+        if ($res && $res['status'] === 'Pending') {
+            $pdo->prepare("UPDATE reservations SET status='Cancelled' WHERE id=?")->execute([$res_id]);
+            $msg = '✅ Reservation ' . $res_id . ' has been cancelled.';
+        } else {
+            $msg = '❌ Cannot cancel this reservation.'; $msg_type = 'danger';
+        }
+    }
+
+    // ── PRG: Store in session then redirect to GET ──
+    // Prevents reservation being re-booked on page refresh
+    $_SESSION['cust_flash']      = $msg;
+    $_SESSION['cust_flash_type'] = $msg_type;
+    header('Location: reservations.php');
+    exit;
 }
 
-// ── Cancel Reservation ──
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel') {
-    $res_id = $_POST['res_id'] ?? '';
-    $check  = $pdo->prepare("SELECT * FROM reservations WHERE id=? AND email=?");
-    $check->execute([$res_id, $_SESSION['customer_email']]);
-    $res = $check->fetch();
-    if ($res && $res['status'] === 'Pending') {
-        $pdo->prepare("UPDATE reservations SET status='Cancelled' WHERE id=?")->execute([$res_id]);
-        $msg = '✅ Reservation ' . $res_id . ' has been cancelled.';
-    } else {
-        $msg = '❌ Cannot cancel this reservation.'; $msg_type = 'danger';
-    }
-}
+// ── Read flash from session ──
+$msg      = $_SESSION['cust_flash']      ?? '';
+$msg_type = $_SESSION['cust_flash_type'] ?? 'success';
+unset($_SESSION['cust_flash'], $_SESSION['cust_flash_type']);
 
 // Fetch customer's reservations
 $reservations = $pdo->prepare("SELECT * FROM reservations WHERE email=? ORDER BY date DESC, time DESC");
@@ -90,34 +86,37 @@ require_once __DIR__ . '/includes/header.php';
         <h1>Table Reservations</h1>
         <p>Book a table and manage your upcoming reservations.</p>
     </div>
-    <button class="btn btn-primary" onclick="document.getElementById('bookModal').classList.add('open')">＋ Book a Table</button>
+    <button class="btn btn-primary" onclick="openModal('bookModal')">＋ Book a Table</button>
 </div>
 
 <!-- RESERVATIONS LIST -->
 <?php if (empty($reservations)): ?>
 <div style="text-align:center;padding:60px;background:#fff;border-radius:var(--radius-lg);border:1px solid var(--border)">
     <div style="font-size:3.5rem;margin-bottom:14px">📅</div>
-    <h3 style="font-family:'DM Serif Display',serif;font-size:1.3rem;font-weight:400;margin-bottom:8px">No reservations yet</h3>
-    <p style="color:var(--text-3);margin-bottom:20px">Book a table for a wonderful dining experience!</p>
-    <button class="btn btn-primary" onclick="document.getElementById('bookModal').classList.add('open')">＋ Book a Table</button>
+    <h3 style="font-family:'Playfair Display',serif;font-size:1.3rem;font-weight:400;margin-bottom:8px">No reservations yet</h3>
+    <p style="color:var(--brown-3);margin-bottom:20px">Book a table for a wonderful dining experience!</p>
+    <button class="btn btn-primary" onclick="openModal('bookModal')">＋ Book a Table</button>
 </div>
 <?php else: ?>
 <div style="display:flex;flex-direction:column;gap:14px">
 <?php foreach ($reservations as $r):
-    $is_future   = $r['date'] >= $today;
-    $can_cancel  = $r['status'] === 'Pending';
-    $date_label  = $r['date'] === $today ? '📅 Today' : date('l, d F Y', strtotime($r['date']));
+    $is_future  = $r['date'] >= $today;
+    $can_cancel = $r['status'] === 'Pending';
+    $date_label = $r['date'] === $today ? '📅 Today' : date('l, d F Y', strtotime($r['date']));
+    $icon = $r['status'] === 'Completed' ? '✅' : ($r['status'] === 'Cancelled' ? '❌' : ($r['status'] === 'Seated' ? '🪑' : ($r['status'] === 'Confirmed' ? '✔️' : '⏳')));
 ?>
-<div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;box-shadow:0 2px 10px rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px">
+<div style="background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;box-shadow:0 2px 10px rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;transition:all .2s"
+     onmouseover="this.style.boxShadow='0 8px 28px rgba(61,31,10,.1)';this.style.transform='translateY(-2px)'"
+     onmouseout="this.style.boxShadow='0 2px 10px rgba(0,0,0,.05)';this.style.transform='none'">
     <div style="display:flex;align-items:center;gap:16px">
-        <div style="width:52px;height:52px;border-radius:12px;background:<?= $is_future ? 'rgba(232,98,42,.1)' : 'var(--bg-3)' ?>;display:flex;align-items:center;justify-content:center;font-size:1.5rem">
-            <?= $r['status'] === 'Completed' ? '✅' : ($r['status'] === 'Cancelled' ? '❌' : '🪑') ?>
+        <div style="width:52px;height:52px;border-radius:12px;background:<?= $is_future && $r['status'] !== 'Cancelled' ? 'rgba(255,69,0,.1)' : 'var(--cream)' ?>;display:flex;align-items:center;justify-content:center;font-size:1.5rem">
+            <?= $icon ?>
         </div>
         <div>
-            <div style="font-weight:700;font-size:.95rem;margin-bottom:2px"><?= $date_label ?></div>
-            <div style="color:var(--text-3);font-size:.82rem">🕐 <?= date('g:i A', strtotime($r['time'])) ?> &nbsp;·&nbsp; ID: <?= htmlspecialchars($r['id']) ?></div>
+            <div style="font-weight:700;font-size:.95rem;margin-bottom:2px;color:var(--brown)"><?= $date_label ?></div>
+            <div style="color:var(--brown-3);font-size:.82rem">🕐 <?= date('g:i A', strtotime($r['time'])) ?> &nbsp;·&nbsp; ID: <?= htmlspecialchars($r['id']) ?></div>
             <?php if ($r['notes']): ?>
-            <div style="color:var(--text-3);font-size:.76rem;font-style:italic;margin-top:3px">"<?= htmlspecialchars(mb_strimwidth($r['notes'],0,50,'…')) ?>"</div>
+            <div style="color:var(--brown-3);font-size:.76rem;font-style:italic;margin-top:3px">"<?= htmlspecialchars(mb_strimwidth($r['notes'],0,50,'…')) ?>"</div>
             <?php endif; ?>
         </div>
     </div>
@@ -141,7 +140,7 @@ require_once __DIR__ . '/includes/header.php';
     <div class="modal">
         <div class="modal-header">
             <div class="modal-title">📅 Book a Table</div>
-            <button class="modal-close" onclick="document.getElementById('bookModal').classList.remove('open')">✕</button>
+            <button class="modal-close" onclick="closeModal('bookModal')">✕</button>
         </div>
         <div class="modal-body">
             <form method="POST">
@@ -163,22 +162,13 @@ require_once __DIR__ . '/includes/header.php';
                     <label class="form-label">Special Requests</label>
                     <textarea name="notes" class="form-input" rows="3" placeholder="e.g. Window table, birthday celebration, dietary requirements…"></textarea>
                 </div>
-                <div style="background:rgba(62,207,142,.07);border:1px solid rgba(62,207,142,.25);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:.78rem;color:#1a7a4a">
-                    📧 A confirmation email will be sent to <?= htmlspecialchars($_SESSION['customer_email']) ?>
-                </div>
                 <div style="display:flex;gap:10px;justify-content:flex-end">
-                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('bookModal').classList.remove('open')">Cancel</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeModal('bookModal')">Cancel</button>
                     <button type="submit" class="btn btn-primary">📅 Confirm Booking</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
-
-<script>
-document.getElementById('bookModal').addEventListener('click', function(e) {
-    if (e.target === this) this.classList.remove('open');
-});
-</script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
