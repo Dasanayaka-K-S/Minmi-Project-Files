@@ -7,6 +7,9 @@ $prefix       = $is_subpage ? '' : 'pages/';
 $root         = $is_subpage ? '../' : '';
 $role         = $_SESSION['user_role'] ?? 'cashier';
 
+// Asset path
+$assets_path = $is_subpage ? '../assets' : 'assets';
+
 // All nav links
 $all_links = [
     ['page'=>'dashboard',    'href'=>'dashboard.php',             'icon'=>'🏠', 'label'=>'Dashboard',       'roles'=>['admin']],
@@ -23,13 +26,15 @@ $all_links = [
 // Filter links by role
 $nav_links = array_filter($all_links, fn($l) => in_array($role, $l['roles']));
 
-$user_name   = $_SESSION['user_name']  ?? 'User';
+$user_name     = $_SESSION['user_name']  ?? 'User';
 $user_initials = strtoupper(substr($user_name, 0, 1) . (strpos($user_name,' ')!==false ? substr($user_name, strpos($user_name,' ')+1, 1) : ''));
-$role_label  = $role === 'admin' ? '👑 Admin' : '🧾 Cashier';
+$role_label    = $role === 'admin' ? '👑 Admin' : '🧾 Cashier';
 ?>
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-        <span class="brand-icon">🔥</span>
+        <img src="<?= $assets_path ?>/img/logo.png"
+             alt="Minmi Restaurant"
+             style="height:38px;width:38px;object-fit:contain;border-radius:8px;flex-shrink:0">
         <span class="brand-name">Minmi<em>Restaurent</em></span>
     </div>
 

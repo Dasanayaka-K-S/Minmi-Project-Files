@@ -30,7 +30,7 @@ $assets_path = $is_subpage ? '../assets' : 'assets';
         'dashboard.php':    20000,
         'orders.php':       10000,
         'reservations.php': 15000,
-        'menu.php':          5000,
+        'menu.php':         60000,
         'inventory.php':     5000,
         'customers.php':    60000,
         'reports.php':      20000,
