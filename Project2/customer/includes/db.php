@@ -1,9 +1,5 @@
 <?php
-// ============================================================
-//  DB — Minmi Restaurent Customer Website
-//  Place in: customer/includes/db.php
-//  Same database as admin dashboard
-// ============================================================
+
 
 // ── Use separate session from admin dashboard ──
 if (session_status() === PHP_SESSION_NONE) {
