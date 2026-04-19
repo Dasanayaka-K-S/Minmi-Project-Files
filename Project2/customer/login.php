@@ -53,16 +53,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             min-height:100vh;
             display:grid;
             grid-template-columns:1fr 1fr;
+
+            /* THIS LINE SWAPS PANELS */
+            grid-template-areas: "right left";
+
             background:var(--brown);
             overflow:hidden;
         }
         /* LEFT */
         .left-panel {
-            position:relative;
-            display:flex;flex-direction:column;justify-content:center;align-items:flex-start;
-            padding:60px;overflow:hidden;
-            background:linear-gradient(145deg,#1A0A02 0%,#2D1208 50%,#3D1F0A 100%);
+        grid-area:left;   /* ADD THIS */
+
+        position:relative;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:flex-start;
+        padding:60px;
+        overflow:hidden;
+        background:linear-gradient(145deg,#1A0A02 0%,#2D1208 50%,#3D1F0A 100%);
         }
+
         .float-emoji {
             position:absolute;font-size:2.5rem;opacity:0.15;
             animation:floatUp 8s ease-in-out infinite;
@@ -101,10 +112,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .pill:hover{background:rgba(255,255,255,.1);color:#fff;transform:translateX(4px)}
         /* RIGHT */
         .right-panel{
-            background:var(--cream);display:flex;flex-direction:column;
-            justify-content:center;align-items:center;padding:60px 48px;
-            position:relative;overflow:hidden;
+        grid-area:right;   /* ADD THIS */
+
+        background:var(--cream);
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        padding:60px 48px;
+        position:relative;
+        overflow:hidden;
         }
+        
         .right-panel::before{content:'';position:absolute;top:-100px;right:-100px;width:300px;height:300px;background:radial-gradient(circle,rgba(255,107,43,.12) 0%,transparent 70%);pointer-events:none}
         .right-panel::after{content:'';position:absolute;bottom:-80px;left:-80px;width:250px;height:250px;background:radial-gradient(circle,rgba(255,149,0,.1) 0%,transparent 70%);pointer-events:none}
         .form-wrap{width:100%;max-width:400px;position:relative;z-index:1}

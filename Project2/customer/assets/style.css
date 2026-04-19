@@ -36,7 +36,7 @@ body {
 
 /* ══ NAV ══ */
 .nav {
-    background: rgba(255,252,248,.95);
+    background: rgba(254, 251, 247, 0.95);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
     position: sticky;

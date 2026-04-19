@@ -255,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="form-header">
             <div class="form-eyebrow">Get Started Free</div>
             <h2 class="form-title">Create your<br>account</h2>
-            <p class="form-subtitle">Already a member? <a href="login.php" style="color:var(--orange);font-weight:700;text-decoration:none">Sign in →</a></p>
+            <p class="form-subtitle">Already a member? <a href="login.php" style="color:var(--orange);font-weight:700;text-decoration:none">Log in →</a></p>
         </div>
 
         <?php if ($msg): ?>
