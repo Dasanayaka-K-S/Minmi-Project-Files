@@ -31,6 +31,6 @@ $asset_base   = $_project_dir . '/customer/assets/';
 <?php endif; ?>
 
 <script src="<?= $asset_base ?>main.js"></script>
-
+<?php require_once __DIR__ . '/chatbot_widget.php'; ?>
 </body>
 </html>
