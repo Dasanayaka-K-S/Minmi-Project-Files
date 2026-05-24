@@ -15,7 +15,7 @@ $all_links = [
     ['page'=>'customers',    'href'=>$prefix.'customers.php',     'icon'=>'👥', 'label'=>'Customers',        'roles'=>['admin','cashier']],
     ['page'=>'feedback',     'href'=>$prefix.'feedback.php',      'icon'=>'⭐', 'label'=>'Feedback',         'roles'=>['admin','cashier']],
     ['page'=>'menu',         'href'=>$prefix.'menu.php',          'icon'=>'🍽️', 'label'=>'Menu Management',  'roles'=>['admin']],
-    ['page'=>'inventory',    'href'=>$prefix.'inventory.php',     'icon'=>'📦', 'label'=>'Inventory',        'roles'=>['admin']],
+    //['page'=>'inventory',    'href'=>$prefix.'inventory.php',     'icon'=>'📦', 'label'=>'Inventory',        'roles'=>['admin']],
     ['page'=>'staff',        'href'=>$prefix.'staff.php',         'icon'=>'👨‍🍳','label'=>'Staff',             'roles'=>['admin']],
     ['page'=>'reports',      'href'=>$prefix.'reports.php',       'icon'=>'📊', 'label'=>'Reports',          'roles'=>['admin']],
     ['page'=>'settings',     'href'=>$prefix.'settings.php',      'icon'=>'⚙️', 'label'=>'Settings',         'roles'=>['admin']],

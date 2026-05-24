@@ -22,8 +22,8 @@
     // Per-page intervals in milliseconds (0 = no refresh)
     const intervals = {
         'menu.php':          60000,  // 60 seconds
-        'orders.php':         5000,  // 5 seconds
-        'reservations.php':  25000,  // 25 seconds
+        'orders.php':         40000,  // 40 seconds
+        'reservations.php':  60000,  // 60 seconds
         'cart.php':              0,  // no refresh
         'login.php':             0,  // no refresh
         'register.php':          0,  // no refresh
